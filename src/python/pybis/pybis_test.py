@@ -19,3 +19,4 @@ def test_credentials_store(tmpdir):
     store.write(credentials)
     disk_credentials = store.read()
     assert credentials.token == disk_credentials.token
+    assert not disk_credentials.has_username_and_password()

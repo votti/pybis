@@ -59,7 +59,9 @@ class OpenbisCredentialStore:
         """
         if not os.path.exists(self.store_path):
             return OpenbisCredentials()
-        # TODO Implement reading a credentials file
+        with open(self.store_path, "r") as f:
+            token = f.read()
+        return OpenbisCredentials(token)
 
     def write(self, credentials):
         """Write a credentials object to the store, overwriting any previous information.
