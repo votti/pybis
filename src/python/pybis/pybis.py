@@ -10,6 +10,8 @@ Created by Chandrasekhar Ramakrishnan on 2016-05-10.
 Copyright (c) 2016 ETH Zuerich. All rights reserved.
 """
 
+import os
+
 
 class OpenbisCredentials:
     """Credentials for communicating with openBIS."""
@@ -35,3 +37,59 @@ class OpenbisCredentials:
     @property
     def password(self):
         return self.uname_and_pass[1]
+
+
+class OpenbisCredentialStore:
+    """Cache login tokens for reuse."""
+
+    def __init__(self, store_folder):
+        """Cache credentials on the file system at store_path.
+        If the store_folder does not exist, it will be created with the umask inherited from the shell.
+        :param store_folder: The folder to write the credentials to. It will be created if necessary.
+        """
+        self.store_folder = store_folder
+
+    @property
+    def store_path(self):
+        return os.path.join(self.store_folder, "bis_token.txt")
+
+    def read(self):
+        """Read the cached credentials and return a credentials object.
+        :return: A credentials object with a token, or an empty credentials object if no store was found.
+        """
+        if not os.path.exists(self.store_path):
+            return OpenbisCredentials()
+        # TODO Implement reading a credentials file
+
+    def write(self, credentials):
+        """Write a credentials object to the store, overwriting any previous information.
+        :param credentials: The credentials with a token to write. If it has no token, nothing is written.
+        """
+        if not credentials.has_token():
+            return
+        token = credentials.token
+        if not os.path.exists(self.store_folder):
+            os.makedirs(self.store_folder)
+        with open(self.store_path, "w") as f:
+            f.write(token)
+
+
+class Openbis:
+    """Interface for communicating with openBIS."""
+
+    def __init__(self, url, credentials):
+        """Initialize an interface to openBIS with information necessary to connect to the server.
+        :param url:
+        :param credentials:
+        """
+        self.url = url
+        self.credentials = credentials
+
+    def login(self):
+        """Log into openBIS.
+        Expects credentials with username and password and updates the token on the credentials object.
+        Throw a ValueError with the error message if login failed.
+        """
+        if not self.credentials.has_username_and_password:
+            raise ValueError('Cannot log into openBIS without a username and password')
+        # TODO Implement the logic of this method.

@@ -11,6 +11,7 @@ setup(name='pybis',
       license='BSD',
       packages=['pybis'],
       install_requires=[
+          'pytest',
           'click'
       ],
       entry_points='''
