@@ -200,6 +200,8 @@ c.JupyterHub.authenticator_class = 'jupyterhub.auth.PAMAuthenticator'
 # Should be a subclass of Spawner.
 # c.JupyterHub.spawner_class = 'jupyterhub.spawner.LocalProcessSpawner'
 
+c.JupyterHub.spawner_class = 'sudospawner.SudoSpawner'
+
 # Path to SSL certificate file for the public facing interface of the proxy
 #
 # Use with ssl_key
@@ -257,7 +259,7 @@ c.JupyterHub.authenticator_class = 'jupyterhub.auth.PAMAuthenticator'
 # c.Spawner.cmd = ['jupyterhub-singleuser']
 
 # Enable debug-logging of the single-user server
-# c.Spawner.debug = False
+c.Spawner.debug = False
 
 # The default URL for the single-user server.
 #
