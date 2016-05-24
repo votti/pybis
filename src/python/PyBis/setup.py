@@ -18,4 +18,5 @@ setup(name='pybis',
         [console_scripts]
         pybis=pybis.scripts.cli:main
       ''',
-      zip_safe=False)
+      zip_safe=False
+)
