@@ -63,10 +63,10 @@ class OpenbisAuthenticator(Authenticator):
             self.log.warn('Empty password')
             return None
 
-        credentials = OpenbisCredentials(uname_and_pass=(username, password))
-        openbis = Openbis(self.server_address + ":" + self.server_port, credentials)
+        openbis = Openbis(self.server_address + ":" + str(self.server_port))
         try:
-            openbis.login()
+            credentials = OpenbisCredentials(uname_and_pass=(username, password))
+            # openbis.login()
             return username
         except:
             self.log.warn('Invalid password')
