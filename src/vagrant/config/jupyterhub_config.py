@@ -443,4 +443,4 @@ c.Authenticator.whitelist = {'jhub'}
 #------------------------------------------------------------------------------
 # OpenbisAuthenticator configuration
 #------------------------------------------------------------------------------
-c.OpenbisAuthenticator.server_address = "localhost"
+c.OpenbisAuthenticator.server_url = "http://localhost:8080"

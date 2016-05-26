@@ -19,25 +19,9 @@ from traitlets import Unicode, Int, Bool
 
 
 class OpenbisAuthenticator(Authenticator):
-    server_address = Unicode(
+    server_url = Unicode(
         config=True,
-        help='Address of openBIS server to contact'
-    )
-    server_port = Int(
-        config=True,
-        help='Port on which to contact openBIS server',
-    )
-
-    def _server_port_default(self):
-        if self.use_ssl:
-            return 443  # default SSL port for openBIS
-        else:
-            return 80  # default plaintext port for openBIS
-
-    use_ssl = Bool(
-        True,
-        config=True,
-        help='Use SSL to encrypt connection to openBIS server'
+        help='URL of openBIS server to contact'
     )
 
     valid_username_regex = Unicode(
@@ -63,7 +47,7 @@ class OpenbisAuthenticator(Authenticator):
             self.log.warn('Empty password')
             return None
 
-        openbis = Openbis(self.server_address + ":" + str(self.server_port))
+        openbis = Openbis(self.server_url)
         try:
             credentials = OpenbisCredentials(uname_and_pass=(username, password))
             # openbis.login()
