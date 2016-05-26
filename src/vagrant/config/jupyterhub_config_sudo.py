@@ -71,9 +71,7 @@
 # - takes two arguments: (handler, data),
 #   where `handler` is the calling web.RequestHandler,
 #   and `data` is the POST form data from the login page.
-# c.JupyterHub.authenticator_class = 'jupyterhub.auth.PAMAuthenticator'
-
-c.JupyterHub.authenticator_class = 'jupyterbis.auth.OpenbisAuthenticator'
+c.JupyterHub.authenticator_class = 'jupyterhub.auth.PAMAuthenticator'
 
 # The base URL of the entire application
 # c.JupyterHub.base_url = '/'
@@ -202,6 +200,8 @@ c.JupyterHub.authenticator_class = 'jupyterbis.auth.OpenbisAuthenticator'
 # Should be a subclass of Spawner.
 # c.JupyterHub.spawner_class = 'jupyterhub.spawner.LocalProcessSpawner'
 
+c.JupyterHub.spawner_class = 'sudospawner.SudoSpawner'
+
 # Path to SSL certificate file for the public facing interface of the proxy
 #
 # Use with ssl_key
@@ -258,10 +258,8 @@ c.JupyterHub.authenticator_class = 'jupyterbis.auth.OpenbisAuthenticator'
 # The command used for starting notebooks.
 # c.Spawner.cmd = ['jupyterhub-singleuser']
 
-# c.Spawner.cmd = ['/home/vagrant/miniconda3/bin/jupyterhub-singleuser']
-
 # Enable debug-logging of the single-user server
-# c.Spawner.debug = True
+c.Spawner.debug = False
 
 # The default URL for the single-user server.
 #
@@ -279,7 +277,6 @@ c.JupyterHub.authenticator_class = 'jupyterbis.auth.OpenbisAuthenticator'
 
 # Whitelist of environment variables for the subprocess to inherit
 # c.Spawner.env_keep = ['PATH', 'PYTHONPATH', 'CONDA_ROOT', 'CONDA_DEFAULT_ENV', 'VIRTUAL_ENV', 'LANG', 'LC_ALL']
-c.Spawner.env_keep = ['PATH', 'PYTHONPATH', 'CONDA_ROOT', 'CONDA_DEFAULT_ENV', 'VIRTUAL_ENV', 'LANG', 'LC_ALL']
 
 # Environment variables to load for the Spawner.
 #
@@ -438,9 +435,3 @@ c.Authenticator.whitelist = {'jhub'}
 
 # The PAM service to use for authentication.
 # c.PAMAuthenticator.service = 'login'
-
-
-#------------------------------------------------------------------------------
-# OpenbisAuthenticator configuration
-#------------------------------------------------------------------------------
-c.OpenbisAuthenticator.server_address = "localhost"

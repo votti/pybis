@@ -66,6 +66,10 @@ Vagrant.configure(2) do |config|
   #   sudo apt-get install -y apache2
   # SHELL
 
+  # TODO: Break this up into a few shell scripts:
+  # 1. Install necessary packages and tools (yum commands + install conda)
+  # 1. Install python packages for jupyterhub
+
   # Install Get
   config.vm.provision :shell, inline: "sudo yum -y install git"
 
@@ -101,6 +105,6 @@ Vagrant.configure(2) do |config|
   config.vm.provision :shell, inline: "pip install -e /vagrant_python/PyBis/"
   # Start the jupyter notebook (does not seem to work...)
   # config.vm.provision :shell, run: "always", inline: "jupyter notebook --no-browser --ip=0.0.0.0 &"
-  # config.vm.provision :shell, run: "always", inline: "jupyterhub -f /vagrant/jupyterhub_config.py --no-ssl &"
-  # config.vm.provision :shell, run: "always", inline: "sudo -u rhea /home/vagrant/miniconda3/bin/jupyterhub --JupyterHub.spawner_class=sudospawner.SudoSpawner -f /vagrant/jupyterhub_config.py --no-ssl &"
+  # config.vm.provision :shell, run: "always", inline: "sudo jupyterhub -f /vagrant/config/jupyterhub_config_basic.py --no-ssl &"
+  # config.vm.provision :shell, run: "always", inline: "sudo -u rhea jupyterhub -f /vagrant/config/jupyterhub_config_sudo.py --no-ssl &"
 end
