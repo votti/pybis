@@ -4,7 +4,7 @@ from setuptools import setup
 
 setup(name='pybis',
       version='0.1.0',
-      description='A module for interacting with openBIS',
+      description='A package for interacting with openBIS.',
       url='https://sissource.ethz.ch/sis/pybis/',
       author='SIS | ID |ETH Zuerich',
       author_email='chandrasekhar.ramakrishnan@id.ethz.ch',
@@ -18,4 +18,4 @@ setup(name='pybis',
         [console_scripts]
         pybis=pybis.scripts.cli:main
       ''',
-      zip_safe=False)
+      zip_safe=True)
