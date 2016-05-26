@@ -379,7 +379,7 @@ c.Authenticator.admin_users = {'jhub'}
 #
 # Use this to restrict which users can login. If empty, allow any user to
 # attempt login.
-c.Authenticator.whitelist = {'jhub'}
+# c.Authenticator.whitelist = {}
 
 #------------------------------------------------------------------------------
 # LocalAuthenticator configuration
