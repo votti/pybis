@@ -11,6 +11,9 @@ Copyright (c) 2016 ETH Zuerich. All rights reserved.
 """
 
 import os
+import requests
+import json
+import re
 
 
 class OpenbisCredentials:
@@ -79,23 +82,54 @@ class OpenbisCredentialStore:
 class Openbis:
     """Interface for communicating with openBIS."""
 
-    def __init__(self, url, credentials):
+    def __init__(self, host=None):
         """Initialize an interface to openBIS with information necessary to connect to the server.
-        :param url:
-        :param credentials:
+        :param host:
         """
-        self.url = url
-        self.credentials = credentials
+        self.host = host
+        self.token = None
 
-    def login(self):
+    def token(self):
+        if self.token is None:
+            raise ValueError('no valid session available')
+
+    def logout(self):
+
+        logout_request = {
+            "method":"logout",
+            "params":[self.token],
+            "id":"1",
+            "jsonrpc":"2.0"
+        }
+        resp = requests.post(self.host, json.dumps(logout_request))
+        if resp.ok:
+            self.token = None
+
+
+    def login(self, username='openbis_test_js', password='password', store_credentials=False):
         """Log into openBIS.
-        Expects credentials with username and password and updates the token on the credentials object.
+        Expects a username and a password and updates the token (session-ID).
+        The token is then used for every request.
         Clients may want to store the credentials object in a credentials store after successful login.
         Throw a ValueError with the error message if login failed.
         """
-        if not self.credentials.has_username_and_password:
-            raise ValueError('Cannot log into openBIS without a username and password')
-            # TODO Implement the logic of this method.
+
+        login_request = {
+            "method":"login",
+            "params":[username, password],
+            "id":"1",
+            "jsonrpc":"2.0"
+        }
+        resp = requests.post(self.host, json.dumps(login_request))
+        if resp.ok:
+            self.token = resp.json()['result']
+
+        else:
+            raise ValueError(
+                'Cannot log into openBIS. Got status code ' + resp.status_code
+                + ' with reason: ' + resp.reason
+            )
+        
 
     def is_token_valid(self):
         """Check if the connection to openBIS is valid.
@@ -103,9 +137,18 @@ class Openbis:
         user to login again.
         :return: Return True if the token is valid, False if it is not valid.
         """
-        if not self.credentials.has_token():
+
+        if not self.token:
             return False
-            # TODO Implement the logic of this method.
+
+    def get_dataset(self, permid):
+
+        search = {
+            "permId": permid,
+            "@type": "as.dto.dataset.id.DataSetPermId"
+        }  
+
+
 
     def get_samples(self, sample_identifiers):
         """Retrieve metadata for the sample.
@@ -113,7 +156,77 @@ class Openbis:
         to the same information visible in the ELN UI. The metadata will be on the file system.
         :param sample_identifiers: A list of sample identifiers to retrieve.
         """
-        pass
+
+        if not isinstance(sample_identifiers, list):
+            sample_identifiers = [sample_identifiers]
+
+
+        searches = []
+
+        for ident in sample_identifiers:
+
+            # assume we got a sample identifier e.g. /TEST/TEST-SAMPLE
+            match = re.match('/', ident)
+            if match:
+                searches.append({
+                    "identifier": ident,
+                    "@type": "as.dto.sample.id.SampleIdentifier"
+                })
+                continue
+
+            # look if we got a PermID eg. 234567654345-123
+            match = re.match('\d+\-\d+', ident)
+            if match:
+                searches.append({
+                    "permId": ident,
+                    "@type": "as.dto.sample.id.SamplePermId"
+                })
+                continue
+
+            raise ValueError(
+                '"' + ident + '" is neither a Sample Identifier nor a PermID'
+            )
+
+        sample_request = {
+            "method": "getSamples",
+            "params": [
+                self.token,
+                searches,
+                {
+                    "type": {
+                        "@type": "as.dto.sample.fetchoptions.SampleTypeFetchOptions"
+                    },
+                    "properties": {
+                        "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
+                    },
+                    "parents": {
+                        "@id": 20,
+                        "@type": "as.dto.sample.fetchoptions.SampleFetchOptions",
+                        "properties": {
+                        "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
+                        }
+                    },
+                    "dataSets": {
+                        "@type": "as.dto.dataset.fetchoptions.DataSetFetchOptions",
+                        "properties": {
+                        "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
+                        }
+                    }
+                }
+            ],
+            "id": "1",
+            "jsonrpc": "2.0"
+        }
+
+        resp = requests.post(self.host, json.dumps(sample_request))
+        if resp.ok:
+            data = resp.json()
+            if "error" in data:
+                raise ValueError("Request produced an error: " + data["message"])
+            else:
+                return data['result']
+
+
         # TODO Implement the logic of this method
 
     def get_samples_with_data(self, sample_identifiers):
