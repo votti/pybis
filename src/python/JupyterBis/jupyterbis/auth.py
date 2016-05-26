@@ -9,16 +9,16 @@ Created by Chandrasekhar Ramakrishnan on 2016-05-25.
 Copyright (c) 2016 ETH Zuerich All rights reserved.
 """
 
-from jupyterhub.auth import Authenticator
+from jupyterhub.auth import LocalAuthenticator
 from pybis.pybis import Openbis, OpenbisCredentials
 
 import re
 
 from tornado import gen
-from traitlets import Unicode, Int, Bool
+from traitlets import Unicode
 
 
-class OpenbisAuthenticator(Authenticator):
+class OpenbisAuthenticator(LocalAuthenticator):
     server_url = Unicode(
         config=True,
         help='URL of openBIS server to contact'
@@ -34,8 +34,6 @@ class OpenbisAuthenticator(Authenticator):
     def authenticate(self, handler, data):
         username = data['username']
         password = data['password']
-
-        print("Authenticate user " + username)
 
         # Protect against invalid usernames as well as LDAP injection attacks
         if not re.match(self.valid_username_regex, username):

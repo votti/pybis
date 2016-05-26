@@ -410,9 +410,12 @@ c.Authenticator.admin_users = {'jhub'}
 # when the user 'river' is created.
 # c.LocalAuthenticator.add_user_cmd = []
 
+c.LocalAuthenticator.add_user_cmd = ['adduser', '-c', '""', '-G', 'jupyterhub']
+
 # If a user is added that doesn't exist on the system, should I try to create
 # the system user?
 # c.LocalAuthenticator.create_system_users = False
+c.LocalAuthenticator.create_system_users = True
 
 # Automatically whitelist anyone in this group.
 # c.LocalAuthenticator.group_whitelist = set()
