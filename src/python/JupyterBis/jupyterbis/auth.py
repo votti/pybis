@@ -47,9 +47,8 @@ class OpenbisAuthenticator(LocalAuthenticator):
 
         openbis = Openbis(self.server_url)
         try:
-            credentials = OpenbisCredentials(uname_and_pass=(username, password))
-            # openbis.login()
+            openbis.login(username, password, True)
             return username
-        except:
-            self.log.warn('Invalid password')
+        except ValueError as err:
+            self.log.warn(str(err))
             return None

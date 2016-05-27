@@ -446,4 +446,4 @@ c.LocalAuthenticator.create_system_users = True
 #------------------------------------------------------------------------------
 # OpenbisAuthenticator configuration
 #------------------------------------------------------------------------------
-c.OpenbisAuthenticator.server_url = "http://localhost:8080"
+c.OpenbisAuthenticator.server_url = "https://localhost:8443/openbis/openbis/rmi-application-server-v3.json"
