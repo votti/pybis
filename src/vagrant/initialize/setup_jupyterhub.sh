@@ -10,6 +10,7 @@ sudo yum -y install policycoreutils policycoreutils-python
 # Setup the groups we need to sudo spawning
 sudo groupadd jupyterhub
 sudo usermod -a -G jupyterhub vagrant
+chgrp /home/vagrant jupyterhub
 
 # Get and install miniconda
 wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh
@@ -36,3 +37,5 @@ pip install git+https://github.com/jupyter/sudospawner
 
 # Install our python packages
 pip install -e /vagrant_python/PyBis/
+
+sudo ln -s /home/vagrant/miniconda3/bin/* /usr/bin
