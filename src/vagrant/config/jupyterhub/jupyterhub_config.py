@@ -361,7 +361,7 @@ c.Spawner.env_keep = ['PATH', 'PYTHONPATH', 'CONDA_ROOT', 'CONDA_DEFAULT_ENV', '
 # set of usernames of admin users
 #
 # If unspecified, only the user that launches the server will be admin.
-c.Authenticator.admin_users = {'jhub'}
+# c.Authenticator.admin_users = {}
 
 # Dictionary mapping authenticator usernames to JupyterHub users.
 #

@@ -15,7 +15,7 @@ chgrp /home/vagrant jupyterhub
 # Get and install miniconda
 wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh
 /bin/bash Miniconda3-latest-Linux-x86_64.sh -b -p /home/vagrant/miniconda3
-echo \"export PATH=/home/vagrant/miniconda3/bin:\$PATH\" > .bashrc
+echo export PATH=\"/home/vagrant/miniconda3/bin:\$PATH\" >> .bashrc
 export PATH=/home/vagrant/miniconda3/bin:$PATH
 sudo chown -R vagrant:jupyterhub miniconda3/
 
@@ -37,5 +37,6 @@ pip install git+https://github.com/jupyter/sudospawner
 
 # Install our python packages
 pip install -e /vagrant_python/PyBis/
+pip install -e /vagrant_python/JupyterBis/
 
 sudo ln -s /home/vagrant/miniconda3/bin/* /usr/bin

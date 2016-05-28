@@ -19,6 +19,8 @@ sudo yum -y install unzip
 
 # Create the openbis user
 sudo useradd openbis
+sudo -u postgres createuser openbis
 
 # Add an entry for this hostname to /etc/hosts -- otherwise java complains
-sudo echo "127.0.0.1 localhost `hostname`" >> /etc/hosts
+echo "Add to /etc/hosts: 127.0.0.1 localhost `hostname`"
+echo "Run the openbis installer to get openbis installed."
