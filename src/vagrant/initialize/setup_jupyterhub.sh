@@ -1,5 +1,11 @@
 #!/bin/env bash
 
+# Setup the groups we need to simplify authentication
+sudo groupadd jupyterhub
+sudo usermod -a -G jupyterhub vagrant
+chgrp jupyterhub /home/vagrant
+chmod g+rx /home/vagrant
+
 # Install git
 sudo yum -y install git
 
@@ -7,10 +13,6 @@ sudo yum -y install git
 sudo yum -y install checkpolicy
 sudo yum -y install policycoreutils policycoreutils-python
 
-# Setup the groups we need to sudo spawning
-sudo groupadd jupyterhub
-sudo usermod -a -G jupyterhub vagrant
-chgrp /home/vagrant jupyterhub
 
 # Get and install miniconda
 wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh
@@ -40,3 +42,8 @@ pip install -e /vagrant_python/PyBis/
 pip install -e /vagrant_python/JupyterBis/
 
 sudo ln -s /home/vagrant/miniconda3/bin/* /usr/bin
+sudo chgrp -R jupyterhub /home/vagrant/miniconda3/bin
+
+# Create a directory for jupyterhub to store state
+sudo mkdir /etc/jupyterhub
+sudo chgrp jupyterhub /etc/jupyterhub
