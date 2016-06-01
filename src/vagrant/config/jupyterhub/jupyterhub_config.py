@@ -73,6 +73,8 @@
 #   and `data` is the POST form data from the login page.
 # c.JupyterHub.authenticator_class = 'jupyterhub.auth.PAMAuthenticator'
 
+c.JupyterHub.authenticator_class = 'jupyterbis.auth.OpenbisAuthenticator'
+
 # The base URL of the entire application
 # c.JupyterHub.base_url = '/'
 
@@ -259,7 +261,7 @@
 # c.Spawner.cmd = ['/home/vagrant/miniconda3/bin/jupyterhub-singleuser']
 
 # Enable debug-logging of the single-user server
-c.Spawner.debug = True
+# c.Spawner.debug = True
 
 # The default URL for the single-user server.
 #
@@ -359,7 +361,7 @@ c.Spawner.env_keep = ['PATH', 'PYTHONPATH', 'CONDA_ROOT', 'CONDA_DEFAULT_ENV', '
 # set of usernames of admin users
 #
 # If unspecified, only the user that launches the server will be admin.
-c.Authenticator.admin_users = {'jhub'}
+# c.Authenticator.admin_users = {}
 
 # Dictionary mapping authenticator usernames to JupyterHub users.
 #
@@ -377,7 +379,7 @@ c.Authenticator.admin_users = {'jhub'}
 #
 # Use this to restrict which users can login. If empty, allow any user to
 # attempt login.
-c.Authenticator.whitelist = {'jhub'}
+# c.Authenticator.whitelist = {}
 
 #------------------------------------------------------------------------------
 # LocalAuthenticator configuration
@@ -408,9 +410,12 @@ c.Authenticator.whitelist = {'jhub'}
 # when the user 'river' is created.
 # c.LocalAuthenticator.add_user_cmd = []
 
+c.LocalAuthenticator.add_user_cmd = ['adduser', '-c', '""', '-G', 'jupyterhub']
+
 # If a user is added that doesn't exist on the system, should I try to create
 # the system user?
 # c.LocalAuthenticator.create_system_users = False
+c.LocalAuthenticator.create_system_users = True
 
 # Automatically whitelist anyone in this group.
 # c.LocalAuthenticator.group_whitelist = set()
@@ -436,3 +441,9 @@ c.Authenticator.whitelist = {'jhub'}
 
 # The PAM service to use for authentication.
 # c.PAMAuthenticator.service = 'login'
+
+
+#------------------------------------------------------------------------------
+# OpenbisAuthenticator configuration
+#------------------------------------------------------------------------------
+c.OpenbisAuthenticator.server_url = "https://localhost:8443/openbis/openbis/rmi-application-server-v3.json"

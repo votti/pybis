@@ -19,6 +19,8 @@ Vagrant.configure(2) do |config|
   # accessing "localhost:8080" will access port 80 on the guest machine.
   config.vm.network "forwarded_port", guest: 8888, host: 8888
   config.vm.network "forwarded_port", guest: 8000, host: 8000
+  config.vm.network "forwarded_port", guest: 8443, host: 8443
+  config.vm.network "forwarded_port", guest: 8444, host: 8444
 
   # Create a private network, which allows host-only access to the machine
   # using a specific IP.
@@ -66,41 +68,17 @@ Vagrant.configure(2) do |config|
   #   sudo apt-get install -y apache2
   # SHELL
 
-  # Install Get
-  config.vm.provision :shell, inline: "sudo yum -y install git"
+  # TODO: Break this up into a few shell scripts:
+  # 1. Install necessary packages and tools (yum commands + install conda)
+  # 1. Install python packages for jupyterhub
 
-  # Install checkpolicy -- needed to configure SELinux to allow jupyterhub to do its thing
-  config.vm.provision :shell, inline: "sudo yum -y install checkpolicy"
-  config.vm.provision :shell, inline: "sudo yum -y install policycoreutils policycoreutils-python"
-
-  # Setup the groups we need to sudo spawning
-  config.vm.provision :shell, inline: "sudo groupadd jupyterhub"
-  config.vm.provision :shell, inline: "sudo usermod -a -G jupyterhub vagrant"
-
-  # Get and install miniconda
-  config.vm.provision :shell, inline: "wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh"
-  config.vm.provision :shell, inline: "/bin/bash Miniconda3-latest-Linux-x86_64.sh -b -p /home/vagrant/miniconda3"
-  config.vm.provision :shell, inline: "echo \"export PATH=/home/vagrant/miniconda3/bin:\$PATH\" > .bashrc"
-  config.vm.provision :shell, inline: "export PATH=/home/vagrant/miniconda3/bin:$PATH"
-  config.vm.provision :shell, inline: "sudo chown -R vagrant:jupyterhub miniconda3/"
+  # Install Jupyterhub
+  config.vm.provision :shell, inline: "/vagrant/initialize/setup_jupyterhub.sh || true"
+  config.vm.provision :shell, inline: "/vagrant/initialize/setup_openbis.sh"
 
 
-  # Put Jupyter and R into conda
-  config.vm.provision :shell, inline: "conda install jupyter"
-  config.vm.provision :shell, inline: "conda install -c r r-essentials"
-  # Install JupyterHub
-  config.vm.provision :shell, inline: "sudo yum -y install epel-release"
-  config.vm.provision :shell, inline: "sudo yum -y install nodejs"
-  config.vm.provision :shell, inline: "sudo yum -y install npm"
-  config.vm.provision :shell, inline: "sudo npm install -g configurable-http-proxy"
-  config.vm.provision :shell, inline: "pip install jupyterhub"
-  config.vm.provision :shell, inline: "pip install git+https://github.com/jupyter/sudospawner"
-    # To set up jupyter hub, follow the instructions https://github.com/jupyterhub/jupyterhub/wiki/Using-sudo-to-run-JupyterHub-without-root-privileges
-    # Though sudospanwer has already been installed
-  # Install our python packages
-  config.vm.provision :shell, inline: "pip install -e /vagrant_python/PyBis/"
   # Start the jupyter notebook (does not seem to work...)
   # config.vm.provision :shell, run: "always", inline: "jupyter notebook --no-browser --ip=0.0.0.0 &"
-  # config.vm.provision :shell, run: "always", inline: "jupyterhub -f /vagrant/jupyterhub_config.py --no-ssl &"
-  # config.vm.provision :shell, run: "always", inline: "sudo -u rhea /home/vagrant/miniconda3/bin/jupyterhub --JupyterHub.spawner_class=sudospawner.SudoSpawner -f /vagrant/jupyterhub_config.py --no-ssl &"
+  # config.vm.provision :shell, run: "always", inline: "sudo jupyterhub -f /vagrant/config/jupyterhub/jupyterhub_config_basic.py --no-ssl &"
+  # config.vm.provision :shell, run: "always", inline: "sudo -u rhea jupyterhub -f /vagrant/config/jupyterhub/jupyterhub_config_sudo.py --no-ssl &"
 end
