@@ -29,6 +29,7 @@ conda install -c r r-essentials
 
 # Install JupyterHub
 sudo npm install -g configurable-http-proxy
+pip install --upgrade pip
 pip install jupyterhub
 pip install git+https://github.com/jupyter/sudospawner
 
