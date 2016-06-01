@@ -10,12 +10,10 @@ sudo rpm -ivh jdk-8u92-linux-x64.rpm
 # Install postgresql
 sudo yum -y install postgresql-server postgresql-contrib
 sudo postgresql-setup initdb
-sudo cp /vagrant/config/postgres/pg_hba.conf /var/lib/pgsql/data/pg_hba.conf
+sudo cp /home/vagrant/sync/config/postgres/pg_hba.conf /var/lib/pgsql/data/pg_hba.conf
 sudo systemctl start postgresql
 sudo systemctl enable postgresql
 
-# Install unzip -- the openbis installer needs it.
-sudo yum -y install unzip
 
 # Create the openbis user
 sudo useradd openbis
