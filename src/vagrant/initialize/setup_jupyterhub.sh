@@ -6,6 +6,7 @@ sudo usermod -a -G jupyterhub vagrant
 chgrp jupyterhub /home/vagrant
 chmod g+rx /home/vagrant
 
+
 # Install git
 sudo yum -y install git
 
@@ -27,9 +28,6 @@ conda install jupyter
 conda install -c r r-essentials
 
 # Install JupyterHub
-sudo yum -y install epel-release
-sudo yum -y install nodejs
-sudo yum -y install npm
 sudo npm install -g configurable-http-proxy
 pip install jupyterhub
 pip install git+https://github.com/jupyter/sudospawner

@@ -1,10 +1,17 @@
 # Use
 
-Vagrant automates the creation of virtual environments. Here, we use vagrant to define an environment for running jupyterhub together with openBIS.
+Vagrant automates the creation of virtual environments. Here, we use vagrant to define an environment for running jupyterhub together with
+openBIS. You can download Vagrant from this website:
+
+https://www.vagrantup.com
+
+Vagrant needs a virtualizing software in order to run the virtual machine. Vagrant works well with many backend providers; by default it
+works with VirtualBox (https://www.virtualbox.org/).
 
 ## First Run
 
-1. cd to src/vagrant
+0. cd to src/vagrant
+1. vagrant plugin install vagrant-vbguest
 2. `vagrant up` -- this will provision a VM and install most software prerequisites (python, jupyterhub, etc.)
 3. Download openBIS and put it in the vagrant folder so it is visible within the VM.
 4. `vagrant ssh` -- log into the machine.
