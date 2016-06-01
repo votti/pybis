@@ -16,6 +16,7 @@ import json
 import re
 
 
+
 class OpenbisCredentials:
     """Credentials for communicating with openBIS."""
 
@@ -79,6 +80,7 @@ class OpenbisCredentialStore:
             f.write(token)
 
 
+
 class Openbis:
     """Interface for communicating with openBIS."""
 
@@ -87,11 +89,29 @@ class Openbis:
         :param host:
         """
         self.host = host
+        self.as_port = ':20000'
+        self.ds_port = ':20001'
         self.token = None
+        self.v3_as_gi = '/openbis/openbis/rmi-application-server-v3.json'
+        self.v1_as_gi = '/openbis/openbis/rmi-general-information-v1.json'
+        self.v1_ds_screening = '/rmi-datastore-server-screening-api-v1.json'
 
     def token(self):
         if self.token is None:
             raise ValueError('no valid session available')
+
+    def post_request(self, resource, data):
+        resp = requests.post(self.host + resource, json.dumps(data))
+
+        if resp.ok:
+            if 'error' in resp.json():
+                raise ValueError('an error has occured: ' + resp.json()['error'] )
+            elif 'result' in resp.json():
+                return resp.json()['result']
+            else:
+                raise ValueError('request did not return either result nor error')
+        else:
+            raise ValueError('general error while performing post request')
 
     def logout(self):
 
@@ -101,7 +121,7 @@ class Openbis:
             "id":"1",
             "jsonrpc":"2.0"
         }
-        resp = requests.post(self.host, json.dumps(logout_request))
+        resp = requests.post(self.host + self.v3_as_gi, json.dumps(logout_request))
         if resp.ok:
             self.token = None
 
@@ -120,34 +140,79 @@ class Openbis:
             "id":"1",
             "jsonrpc":"2.0"
         }
-        resp = requests.post(self.host, json.dumps(login_request))
-        if resp.ok:
-            self.token = resp.json()['result']
-
-        else:
-            raise ValueError(
-                'Cannot log into openBIS. Got status code ' + resp.status_code
-                + ' with reason: ' + resp.reason
-            )
+        result = self.post_request(self.v3_as_gi, login_request)
+        self.token = result
         
 
     def is_token_valid(self):
         """Check if the connection to openBIS is valid.
-        This method is useful to check if a token is still valid or if it has timed out, requiring the
-        user to login again.
+        This method is useful to check if a token is still valid or if it has timed out,
+        requiring the user to login again.
         :return: Return True if the token is valid, False if it is not valid.
         """
 
         if not self.token:
             return False
 
+
+
     def get_dataset(self, permid):
 
-        search = {
-            "permId": permid,
-            "@type": "as.dto.dataset.id.DataSetPermId"
-        }  
+        dataset_request = {
+            "method": "getDataSets",
+            "params": [
+                self.token,
+                [
+                    {
+                        "@id": 0,
+                        "permId": permid,
+                        "@type": "as.dto.dataset.id.DataSetPermId"
+                    }
+                ],
+                {
+                "@id": 0,
+                "parents": {
+                    "@id": 1,
+                    "@type": "as.dto.dataset.fetchoptions.DataSetFetchOptions"
+                },
+                "containers": {
+                    "@id": 3,
+                    "@type": "as.dto.dataset.fetchoptions.DataSetFetchOptions"
+                },
+                "physicalData": {
+                    "@id": 5,
+                    "@type": "as.dto.dataset.fetchoptions.PhysicalDataFetchOptions"
+                },
+                "linkedData": {
+                    "@id": 6,
+                    "@type": "as.dto.dataset.fetchoptions.LinkedDataFetchOptions",
+                    "externalDms": None,
+                    "sort": None
+                },
+                "dataStore": {
+                    "@id": 9,
+                    "@type": "as.dto.datastore.fetchoptions.DataStoreFetchOptions",
+                    "sort": None
+                },
+                "sample": {
+                    "@id": 14,
+                    "@type": "as.dto.sample.fetchoptions.SampleFetchOptions"
+                },
+                "properties": {
+                    "@id": 15,
+                    "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
+                },
+                "@type": "as.dto.dataset.fetchoptions.DataSetFetchOptions"
+                }
+            ],
+            "id": "1",
+            "jsonrpc": "2.0"
+        }
 
+        resp = self.post_request(self.v3_as_gi, dataset_request)
+        if resp is not None:
+            for permid in resp:
+                return DataSet(self, permid, resp[permid])
 
 
     def get_samples(self, sample_identifiers):
@@ -218,7 +283,7 @@ class Openbis:
             "jsonrpc": "2.0"
         }
 
-        resp = requests.post(self.host, json.dumps(sample_request))
+        resp = requests.post(self.host + self.v3_as_gi, json.dumps(sample_request))
         if resp.ok:
             data = resp.json()
             if "error" in data:
@@ -255,3 +320,57 @@ class Openbis:
         """
         pass
         # TODO Implement the logic of this method
+
+
+class DataSet(Openbis):
+    """objects which contain datasets"""
+
+    def __init__(self, openbis_obj, permid, data):
+        self.openbis = openbis_obj
+        self.permid  = permid
+        self.data    = data
+        self.v1_ds_api = '/datastore_server/rmi-dss-api-v1.json'
+        self.downloadUrl = self.data['dataStore']['downloadUrl']
+
+
+    def ensure_folder_exists(folder):
+        if not os.path.exists(folder):
+            os.makedirs(folder)
+
+
+    def save_dataset(self):
+        base_url = self.downloadUrl + '/datastore_server/' + self.permid + '/'
+
+        for file in self.get_file_list:
+            if file['isDirectory']:
+                ensure_folder_exists(file['pathInDataSet'])
+                continue
+            else:
+                download_url = base_url + file['pathInDataSet'] + '?sessionID=' + self.openbis.token 
+
+        download_url = 'http://localhost:20001/datastore_server/20130412142942295-198/thumbnails_256x256.h5ar/wA10_d1-1_cCy5.png?sessionID=openbis_test_js-160530221217822xC35C2A54D2BB472471D3D110EA68F936'
+
+        
+    def get_file_list(self, recursive=True):
+        request = {
+            "method" : "listFilesForDataSet",
+            "params" : [ 
+                self.openbis.token,
+                self.permid, 
+                "/",
+                recursive,
+            ],
+            "id":"1"
+        }
+
+        resp = requests.post(self.downloadUrl + self.v1_ds_api, json.dumps(request))
+
+        if resp.ok:
+            if 'error' in resp.json():
+                raise ValueError('an error has occured: ' + resp.json()['error'] )
+            elif 'result' in resp.json():
+                return resp.json()['result']
+            else:
+                raise ValueError('request did not return either result nor error')
+        else:
+            raise ValueError('general error while performing post request')
