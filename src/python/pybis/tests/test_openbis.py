@@ -3,7 +3,13 @@ from pybis import DataSet
 from pybis import Openbis
 
 def test_token(openbis_instance):
-    assert openbis_instance.token is not None
+    assert openbis_instance.host is not None
+    new_instance = Openbis(openbis_instance.host)
+    new_instance.login()
+    assert new_instance.token is not None
+    assert new_instance.is_token_valid() is True
+    new_instance.logout()
+    assert new_instance.is_token_valid() is False
 
 
 def test_get_samples_by_id(openbis_instance):

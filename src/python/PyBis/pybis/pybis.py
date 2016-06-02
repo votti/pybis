@@ -92,9 +92,8 @@ class Openbis:
         self.as_port = ':20000'
         self.ds_port = ':20001'
         self.token = None
-        self.v3_as_gi = '/openbis/openbis/rmi-application-server-v3.json'
-        self.v1_as_gi = '/openbis/openbis/rmi-general-information-v1.json'
-        self.v1_ds_screening = '/rmi-datastore-server-screening-api-v1.json'
+        self.v3_as = '/openbis/openbis/rmi-application-server-v3.json'
+        self.v1_as = '/openbis/openbis/rmi-general-information-v1.json'
 
     def token(self):
         if self.token is None:
@@ -121,9 +120,8 @@ class Openbis:
             "id":"1",
             "jsonrpc":"2.0"
         }
-        resp = requests.post(self.host + self.v3_as_gi, json.dumps(logout_request))
-        if resp.ok:
-            self.token = None
+        resp = self.post_request(self.v3_as, logout_request)
+        return resp
 
 
     def login(self, username='openbis_test_js', password='password', store_credentials=False):
@@ -140,7 +138,7 @@ class Openbis:
             "id":"1",
             "jsonrpc":"2.0"
         }
-        result = self.post_request(self.v3_as_gi, login_request)
+        result = self.post_request(self.v3_as, login_request)
         self.token = result
         
 
@@ -151,9 +149,17 @@ class Openbis:
         :return: Return True if the token is valid, False if it is not valid.
         """
 
-        if not self.token:
-            return False
+        request = {
+            "method": "isSessionActive",
+            "params": [ self.token ],
+            "id": "1",
+            "jsonrpc": "2.0"
+        }
 
+        resp = self.post_request(self.v1_as, request)
+        print(resp)
+
+        return resp
 
 
     def get_dataset(self, permid):
@@ -209,7 +215,7 @@ class Openbis:
             "jsonrpc": "2.0"
         }
 
-        resp = self.post_request(self.v3_as_gi, dataset_request)
+        resp = self.post_request(self.v3_as, dataset_request)
         if resp is not None:
             for permid in resp:
                 return DataSet(self, permid, resp[permid])
@@ -279,11 +285,11 @@ class Openbis:
                     }
                 }
             ],
-            "id": "1",
+            "id": ident,
             "jsonrpc": "2.0"
         }
 
-        resp = requests.post(self.host + self.v3_as_gi, json.dumps(sample_request))
+        resp = requests.post(self.host + self.v3_as, json.dumps(sample_request))
         if resp.ok:
             data = resp.json()
             if "error" in data:
@@ -329,7 +335,7 @@ class DataSet(Openbis):
         self.openbis = openbis_obj
         self.permid  = permid
         self.data    = data
-        self.v1_ds_api = '/datastore_server/rmi-dss-api-v1.json'
+        self.v1_ds = '/datastore_server/rmi-dss-api-v1.json'
         self.downloadUrl = self.data['dataStore']['downloadUrl']
 
 
@@ -363,7 +369,7 @@ class DataSet(Openbis):
             "id":"1"
         }
 
-        resp = requests.post(self.downloadUrl + self.v1_ds_api, json.dumps(request))
+        resp = requests.post(self.downloadUrl + self.v1_ds, json.dumps(request))
 
         if resp.ok:
             if 'error' in resp.json():
