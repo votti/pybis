@@ -103,6 +103,8 @@ class Openbis:
         try: 
             with open(self.token_filename) as f:
                 self.token = f.read()
+                if not self.is_token_valid():
+                    self.token = None
         except FileNotFoundError:
             self.token = None
 
@@ -175,10 +177,7 @@ class Openbis:
             "id": "1",
             "jsonrpc": "2.0"
         }
-
         resp = self.post_request(self.v1_as, request)
-        print(resp)
-
         return resp
 
 
