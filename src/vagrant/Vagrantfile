@@ -39,6 +39,7 @@ Vagrant.configure(2) do |config|
   # config.vm.synced_folder "../data", "/vagrant_data"
   config.vm.synced_folder "../python", "/vagrant_python"
   config.vm.synced_folder "initialize", "/vagrant_initialize"
+  config.vm.synced_folder "./", "/vagrant"
 
   # Provider-specific configuration so you can fine-tune various
   # backing providers for Vagrant. These expose provider-specific options.
@@ -72,18 +73,18 @@ Vagrant.configure(2) do |config|
   #
   #
 
-  # TODO: Break this up into a few shell scripts:
-  # 1. Install necessary packages and tools (yum commands + install conda)
-  # 1. Install python packages for jupyterhub
-  config.vm.provision :shell, inline: "/vagrant_initialize/setup_general.sh"
+  # Install necessary packages and tools (yum commands + install conda)
+  config.vm.provision :shell, inline: "/vagrant_initialize/setup_general.sh || true"
 
   # Install Jupyterhub
   config.vm.provision :shell, inline: "/vagrant_initialize/setup_jupyterhub.sh || true"
+
+  # Install openBIS
   config.vm.provision :shell, inline: "/vagrant_initialize/setup_openbis.sh"
 
 
   # Start the jupyter notebook (does not seem to work...)
   # config.vm.provision :shell, run: "always", inline: "jupyter notebook --no-browser --ip=0.0.0.0 &"
-  # config.vm.provision :shell, run: "always", inline: "sudo jupyterhub -f /vagrant/config/jupyterhub/jupyterhub_config_basic.py --no-ssl &"
-  # config.vm.provision :shell, run: "always", inline: "sudo -u rhea jupyterhub -f /vagrant/config/jupyterhub/jupyterhub_config_sudo.py --no-ssl &"
+  # config.vm.provision :shell, run: "always", inline: "sudo jupyterhub -f sync/config/jupyterhub/jupyterhub_config_basic.py --no-ssl &"
+  # config.vm.provision :shell, run: "always", inline: "sudo -u rhea jupyterhub -f sync/config/jupyterhub/jupyterhub_config_sudo.py --no-ssl &"
 end
