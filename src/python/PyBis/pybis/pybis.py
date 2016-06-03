@@ -96,14 +96,26 @@ class Openbis:
         self.url     = url_obj.geturl()
         self.port    = url_obj.port
         self.hostname = url_obj.hostname
-
         self.v3_as = '/openbis/openbis/rmi-application-server-v3.json'
         self.v1_as = '/openbis/openbis/rmi-general-information-v1.json'
+
+        self.token_filename = os.path.join(os.path.expanduser("~"), '.pybis', self.hostname + '.token')
+        try: 
+            with open(self.token_filename) as f:
+                self.token = f.read()
+        except FileNotFoundError:
+            self.token = None
 
 
     def token(self):
         if self.token is None:
             raise ValueError('no valid session available')
+
+
+    def save_token(self):
+        os.makedirs(os.path.dirname(self.token_filename), exist_ok=True)
+        with open(self.token_filename, 'w') as f:
+            f.write(self.token)
 
 
     def post_request(self, resource, data):
@@ -188,6 +200,9 @@ class Openbis:
                 "parents": {
                     "@id": 1,
                     "@type": "as.dto.dataset.fetchoptions.DataSetFetchOptions"
+                },
+                "children": {
+                  "@type": "as.dto.dataset.fetchoptions.DataSetFetchOptions"
                 },
                 "containers": {
                     "@id": 3,
@@ -371,7 +386,24 @@ class DataSet(Openbis):
                 filename = os.path.join(self.openbis.hostname, self.permid, file['pathInDataSet'])
                 DataSet.download_file(download_url, filename)
 
+    def get_parents(self):
+        parents = []
+        for item in self.data['parents']:
+            parent = self.openbis.get_dataset(item['code'])
+            if parent is not None:
+                parents.append(parent)
+        return parents
+
+
+    def get_children(self):
+        children = []
+        for item in self.data['children']:
+            child = self.openbis.get_dataset(item['code'])
+            if child is not None:
+                children.append(child)
+        return children
         
+
     def get_file_list(self, recursive=True, start_folder="/"):
         request = {
             "method" : "listFilesForDataSet",

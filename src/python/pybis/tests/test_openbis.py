@@ -11,6 +11,11 @@ def test_token(openbis_instance):
     new_instance.logout()
     assert new_instance.is_token_valid() is False
 
+    openbis_instance.save_token()
+    another_instance = Openbis(openbis_instance.url)
+    assert another_instance.is_token_valid() is True
+
+
 
 def test_get_samples_by_id(openbis_instance):
     response = openbis_instance.get_samples('/TEST/TEST-SAMPLE-2-CHILD-1')
@@ -28,10 +33,26 @@ def test_get_parents(openbis_instance):
     id = '/TEST/TEST-SAMPLE-2'
     response = openbis_instance.get_samples(id)
     assert response is not None
-    #print(json.dumps(response))
     assert 'parents' in response[id]
     assert 'identifier' in response[id]['parents'][0]
     assert response[id]['parents'][0]['identifier']['identifier'] == '/TEST/TEST-SAMPLE-2-PARENT'
+
+
+def test_get_dataset_parents(openbis_instance):
+    permid = '20130415093804724-403'
+    parent_permid = '20130415100158230-407'
+    dataset = openbis_instance.get_dataset(permid)
+    assert dataset is not None
+    parents = dataset.get_parents()
+    assert isinstance(parents, list)
+    assert parents[0] is not None
+    assert isinstance(parents[0], DataSet)
+    assert parents[0].permid == parent_permid
+
+    children = parents[0].get_children()
+    assert isinstance(children, list)
+    assert children[0] is not None
+    assert isinstance(children[0], DataSet)
 
 
 def test_get_dataset_by_permid(openbis_instance):
@@ -50,7 +71,6 @@ def test_get_dataset_by_permid(openbis_instance):
 
     file_list = dataset.get_file_list(recursive=True)
     assert file_list is not None
-    assert len(file_list) > 2
-    dataset.download()
+    assert len(file_list) > 10
 
  
