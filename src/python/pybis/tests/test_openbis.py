@@ -3,8 +3,8 @@ from pybis import DataSet
 from pybis import Openbis
 
 def test_token(openbis_instance):
-    assert openbis_instance.host is not None
-    new_instance = Openbis(openbis_instance.host)
+    assert openbis_instance.hostname is not None
+    new_instance = Openbis(openbis_instance.url)
     new_instance.login()
     assert new_instance.token is not None
     assert new_instance.is_token_valid() is True
@@ -36,6 +36,7 @@ def test_get_parents(openbis_instance):
 
 def test_get_dataset_by_permid(openbis_instance):
     permid = '20130412142942295-198'
+    permid = '20130412153118625-384'
     dataset = openbis_instance.get_dataset(permid)
     assert dataset is not None
     assert isinstance(dataset, DataSet)
@@ -46,6 +47,10 @@ def test_get_dataset_by_permid(openbis_instance):
     assert file_list is not None
     assert isinstance(file_list, list)
     assert len(file_list) == 1
-    
-    
-    
+
+    file_list = dataset.get_file_list(recursive=True)
+    assert file_list is not None
+    assert len(file_list) > 2
+    dataset.download()
+
+ 

@@ -14,7 +14,7 @@ import os
 import requests
 import json
 import re
-
+from urllib.parse import urlparse
 
 
 class OpenbisCredentials:
@@ -80,27 +80,34 @@ class OpenbisCredentialStore:
             f.write(token)
 
 
-
 class Openbis:
     """Interface for communicating with openBIS."""
 
-    def __init__(self, host=None):
+    def __init__(self, url):
         """Initialize an interface to openBIS with information necessary to connect to the server.
         :param host:
         """
-        self.host = host
-        self.as_port = ':20000'
-        self.ds_port = ':20001'
-        self.token = None
+
+        url_obj = urlparse(url)
+        if  url_obj.netloc is None:
+            raise ValueError("please provide the url in this format: https://openbis.host.ch:8443")
+
+        self.url_obj = url_obj
+        self.url     = url_obj.geturl()
+        self.port    = url_obj.port
+        self.hostname = url_obj.hostname
+
         self.v3_as = '/openbis/openbis/rmi-application-server-v3.json'
         self.v1_as = '/openbis/openbis/rmi-general-information-v1.json'
+
 
     def token(self):
         if self.token is None:
             raise ValueError('no valid session available')
 
+
     def post_request(self, resource, data):
-        resp = requests.post(self.host + resource, json.dumps(data))
+        resp = requests.post(self.url + resource, json.dumps(data))
 
         if resp.ok:
             if 'error' in resp.json():
@@ -111,6 +118,7 @@ class Openbis:
                 raise ValueError('request did not return either result nor error')
         else:
             raise ValueError('general error while performing post request')
+
 
     def logout(self):
 
@@ -288,17 +296,21 @@ class Openbis:
             "id": ident,
             "jsonrpc": "2.0"
         }
+        return self.post_request(self.v3_as, sample_request)
 
-        resp = requests.post(self.host + self.v3_as, json.dumps(sample_request))
-        if resp.ok:
-            data = resp.json()
-            if "error" in data:
-                raise ValueError("Request produced an error: " + data["message"])
-            else:
-                return data['result']
+    @staticmethod
+    def download_file(url, filename):
+        
+        # create the necessary directory structure if they don't exist yet
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
 
-
-        # TODO Implement the logic of this method
+        # request the file in streaming mode
+        r = requests.get(url, stream=True)
+        with open(filename, 'wb') as f:
+            for chunk in r.iter_content(chunk_size=1024): 
+                if chunk: # filter out keep-alive new chunks
+                    f.write(chunk)
+        return filename
 
     def get_samples_with_data(self, sample_identifiers):
         """Retrieve metadata for the sample, like get_sample_metadata, but retrieve any data sets as well,
@@ -308,12 +320,14 @@ class Openbis:
         pass
         # TODO Implement the logic of this method
 
+
     def get_data_sets(self, data_set_identifiers):
         """Retrieve data set metadata and content.
         The metadata will be on the file system. The file will also include the location of the data.
         """
         pass
         # TODO Implement the logic of this method
+
 
     def create_data_set_from_notebook(self, path_to_notebook, owner_identifier, paths_to_files,
                                       parent_identifiers):
@@ -338,32 +352,33 @@ class DataSet(Openbis):
         self.v1_ds = '/datastore_server/rmi-dss-api-v1.json'
         self.downloadUrl = self.data['dataStore']['downloadUrl']
 
-
-    def ensure_folder_exists(folder):
+    @staticmethod
+    def ensure_folder_exists(folder): 
         if not os.path.exists(folder):
             os.makedirs(folder)
 
 
-    def save_dataset(self):
+    def download(self):
         base_url = self.downloadUrl + '/datastore_server/' + self.permid + '/'
 
-        for file in self.get_file_list:
+        for file in self.get_file_list(recursive=True):
             if file['isDirectory']:
-                ensure_folder_exists(file['pathInDataSet'])
-                continue
+
+                folder = os.path.join(self.openbis.hostname, self.permid)
+                DataSet.ensure_folder_exists(folder)
             else:
                 download_url = base_url + file['pathInDataSet'] + '?sessionID=' + self.openbis.token 
-
-        download_url = 'http://localhost:20001/datastore_server/20130412142942295-198/thumbnails_256x256.h5ar/wA10_d1-1_cCy5.png?sessionID=openbis_test_js-160530221217822xC35C2A54D2BB472471D3D110EA68F936'
+                filename = os.path.join(self.openbis.hostname, self.permid, file['pathInDataSet'])
+                DataSet.download_file(download_url, filename)
 
         
-    def get_file_list(self, recursive=True):
+    def get_file_list(self, recursive=True, start_folder="/"):
         request = {
             "method" : "listFilesForDataSet",
             "params" : [ 
                 self.openbis.token,
                 self.permid, 
-                "/",
+                start_folder,
                 recursive,
             ],
             "id":"1"
@@ -380,3 +395,4 @@ class DataSet(Openbis):
                 raise ValueError('request did not return either result nor error')
         else:
             raise ValueError('general error while performing post request')
+
