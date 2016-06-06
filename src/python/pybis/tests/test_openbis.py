@@ -16,22 +16,21 @@ def test_token(openbis_instance):
     assert another_instance.is_token_valid() is True
 
 
-
-def test_get_samples_by_id(openbis_instance):
-    response = openbis_instance.get_samples('/TEST/TEST-SAMPLE-2-CHILD-1')
+def test_get_sample_by_id(openbis_instance):
+    response = openbis_instance.get_sample('/TEST/TEST-SAMPLE-2-CHILD-1')
     assert response is not None
     assert response['/TEST/TEST-SAMPLE-2-CHILD-1'] is not None
 
 
-def test_get_samples_by_permid(openbis_instance):
-    response = openbis_instance.get_samples('20130415091923485-402')
+def test_get_sample_by_permid(openbis_instance):
+    response = openbis_instance.get_sample('20130415091923485-402')
     assert response is not None
     assert response['20130415091923485-402'] is not None
 
 
 def test_get_parents(openbis_instance):
     id = '/TEST/TEST-SAMPLE-2'
-    response = openbis_instance.get_samples(id)
+    response = openbis_instance.get_sample(id)
     assert response is not None
     assert 'parents' in response[id]
     assert 'identifier' in response[id]['parents'][0]

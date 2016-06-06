@@ -105,6 +105,7 @@ class Openbis:
                 self.token = f.read()
                 if not self.is_token_valid():
                     self.token = None
+                    os.remove(self.token_filename)
         except FileNotFoundError:
             self.token = None
 
@@ -170,6 +171,8 @@ class Openbis:
         requiring the user to login again.
         :return: Return True if the token is valid, False if it is not valid.
         """
+        if self.token is None:
+            return False
 
         request = {
             "method": "isSessionActive",
@@ -189,51 +192,39 @@ class Openbis:
                 self.token,
                 [
                     {
-                        "@id": 0,
                         "permId": permid,
                         "@type": "as.dto.dataset.id.DataSetPermId"
                     }
                 ],
                 {
-                "@id": 0,
                 "parents": {
-                    "@id": 1,
                     "@type": "as.dto.dataset.fetchoptions.DataSetFetchOptions"
                 },
                 "children": {
                   "@type": "as.dto.dataset.fetchoptions.DataSetFetchOptions"
                 },
                 "containers": {
-                    "@id": 3,
                     "@type": "as.dto.dataset.fetchoptions.DataSetFetchOptions"
                 },
                 "physicalData": {
-                    "@id": 5,
                     "@type": "as.dto.dataset.fetchoptions.PhysicalDataFetchOptions"
                 },
                 "linkedData": {
-                    "@id": 6,
                     "@type": "as.dto.dataset.fetchoptions.LinkedDataFetchOptions",
-                    "externalDms": None,
-                    "sort": None
                 },
                 "dataStore": {
-                    "@id": 9,
                     "@type": "as.dto.datastore.fetchoptions.DataStoreFetchOptions",
-                    "sort": None
                 },
                 "sample": {
-                    "@id": 14,
                     "@type": "as.dto.sample.fetchoptions.SampleFetchOptions"
                 },
                 "properties": {
-                    "@id": 15,
                     "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
                 },
                 "@type": "as.dto.dataset.fetchoptions.DataSetFetchOptions"
                 }
             ],
-            "id": "1",
+            "id": permid,
             "jsonrpc": "2.0"
         }
 
@@ -243,48 +234,42 @@ class Openbis:
                 return DataSet(self, permid, resp[permid])
 
 
-    def get_samples(self, sample_identifiers):
+    def get_sample(self, sample_ident):
         """Retrieve metadata for the sample.
         Get metadata for the sample and any directly connected parents of the sample to allow access
         to the same information visible in the ELN UI. The metadata will be on the file system.
         :param sample_identifiers: A list of sample identifiers to retrieve.
         """
 
-        if not isinstance(sample_identifiers, list):
-            sample_identifiers = [sample_identifiers]
+        search_request = None
 
-
-        searches = []
-
-        for ident in sample_identifiers:
-
-            # assume we got a sample identifier e.g. /TEST/TEST-SAMPLE
-            match = re.match('/', ident)
-            if match:
-                searches.append({
-                    "identifier": ident,
-                    "@type": "as.dto.sample.id.SampleIdentifier"
-                })
-                continue
-
+        # assume we got a sample identifier e.g. /TEST/TEST-SAMPLE
+        match = re.match('/', sample_ident)
+        if match:
+            search_request = {
+                "identifier": sample_ident,
+                "@type": "as.dto.sample.id.SampleIdentifier"
+            }
+        else:
             # look if we got a PermID eg. 234567654345-123
-            match = re.match('\d+\-\d+', ident)
+            match = re.match('\d+\-\d+', sample_ident)
             if match:
-                searches.append({
-                    "permId": ident,
+                search_request = {
+                    "permId": sample_ident,
                     "@type": "as.dto.sample.id.SamplePermId"
-                })
-                continue
-
-            raise ValueError(
-                '"' + ident + '" is neither a Sample Identifier nor a PermID'
-            )
+                }
+            else:
+                raise ValueError(
+                    '"' + sample_ident + '" is neither a Sample Identifier nor a PermID'
+                )
 
         sample_request = {
             "method": "getSamples",
             "params": [
                 self.token,
-                searches,
+                [
+                    search_request, 
+                ],
                 {
                     "type": {
                         "@type": "as.dto.sample.fetchoptions.SampleTypeFetchOptions"
@@ -293,21 +278,26 @@ class Openbis:
                         "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
                     },
                     "parents": {
-                        "@id": 20,
                         "@type": "as.dto.sample.fetchoptions.SampleFetchOptions",
                         "properties": {
-                        "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
+                            "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
+                        }
+                    },
+                    "children": {
+                        "@type": "as.dto.sample.fetchoptions.SampleFetchOptions",
+                        "properties": {
+                            "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
                         }
                     },
                     "dataSets": {
                         "@type": "as.dto.dataset.fetchoptions.DataSetFetchOptions",
                         "properties": {
-                        "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
+                            "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
                         }
                     }
                 }
             ],
-            "id": ident,
+            "id": sample_ident,
             "jsonrpc": "2.0"
         }
         return self.post_request(self.v3_as, sample_request)
@@ -427,3 +417,49 @@ class DataSet(Openbis):
         else:
             raise ValueError('general error while performing post request')
 
+
+class Sample(Openbis):
+    """objects which contain samples"""
+
+    def __init__(self, openbis_obj, permid, data):
+        self.openbis = openbis_obj
+        self.permid  = permid
+        self.data    = data
+        self.v1_ds = '/datastore_server/rmi-dss-api-v1.json'
+        self.downloadUrl = self.data['dataStore']['downloadUrl']
+
+    @staticmethod
+    def ensure_folder_exists(folder): 
+        if not os.path.exists(folder):
+            os.makedirs(folder)
+
+
+    def download(self):
+        base_url = self.downloadUrl + '/datastore_server/' + self.permid + '/'
+
+        for file in self.get_file_list(recursive=True):
+            if file['isDirectory']:
+
+                folder = os.path.join(self.openbis.hostname, self.permid)
+                DataSet.ensure_folder_exists(folder)
+            else:
+                download_url = base_url + file['pathInDataSet'] + '?sessionID=' + self.openbis.token 
+                filename = os.path.join(self.openbis.hostname, self.permid, file['pathInDataSet'])
+                DataSet.download_file(download_url, filename)
+
+    def get_parents(self):
+        parents = []
+        for item in self.data['parents']:
+            parent = self.openbis.get_dataset(item['code'])
+            if parent is not None:
+                parents.append(parent)
+        return parents
+
+
+    def get_children(self):
+        children = []
+        for item in self.data['children']:
+            child = self.openbis.get_dataset(item['code'])
+            if child is not None:
+                children.append(child)
+        return children
