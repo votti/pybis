@@ -300,7 +300,10 @@ class Openbis:
             "id": sample_ident,
             "jsonrpc": "2.0"
         }
-        return self.post_request(self.v3_as, sample_request)
+        resp = self.post_request(self.v3_as, sample_request)
+        if resp is not None:
+            for sample_ident in resp:
+                return Sample(self, sample_ident, resp[sample_ident])
 
     @staticmethod
     def download_file(url, filename):
@@ -421,36 +424,18 @@ class DataSet(Openbis):
 class Sample(Openbis):
     """objects which contain samples"""
 
-    def __init__(self, openbis_obj, permid, data):
+    def __init__(self, openbis_obj, ident, data):
         self.openbis = openbis_obj
-        self.permid  = permid
+        self.ident  =  ident
+        self.permid = data['permId']['permId']
+        self.ident  = data['identifier']['identifier']
         self.data    = data
-        self.v1_ds = '/datastore_server/rmi-dss-api-v1.json'
-        self.downloadUrl = self.data['dataStore']['downloadUrl']
 
-    @staticmethod
-    def ensure_folder_exists(folder): 
-        if not os.path.exists(folder):
-            os.makedirs(folder)
-
-
-    def download(self):
-        base_url = self.downloadUrl + '/datastore_server/' + self.permid + '/'
-
-        for file in self.get_file_list(recursive=True):
-            if file['isDirectory']:
-
-                folder = os.path.join(self.openbis.hostname, self.permid)
-                DataSet.ensure_folder_exists(folder)
-            else:
-                download_url = base_url + file['pathInDataSet'] + '?sessionID=' + self.openbis.token 
-                filename = os.path.join(self.openbis.hostname, self.permid, file['pathInDataSet'])
-                DataSet.download_file(download_url, filename)
 
     def get_parents(self):
         parents = []
         for item in self.data['parents']:
-            parent = self.openbis.get_dataset(item['code'])
+            parent = self.openbis.get_sample(item['permId']['permId'])
             if parent is not None:
                 parents.append(parent)
         return parents
@@ -459,7 +444,7 @@ class Sample(Openbis):
     def get_children(self):
         children = []
         for item in self.data['children']:
-            child = self.openbis.get_dataset(item['code'])
+            child = self.openbis.get_sample(item['permId']['permId'])
             if child is not None:
                 children.append(child)
         return children

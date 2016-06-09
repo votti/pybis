@@ -19,22 +19,36 @@ def test_token(openbis_instance):
 def test_get_sample_by_id(openbis_instance):
     response = openbis_instance.get_sample('/TEST/TEST-SAMPLE-2-CHILD-1')
     assert response is not None
-    assert response['/TEST/TEST-SAMPLE-2-CHILD-1'] is not None
+    assert response.ident == '/TEST/TEST-SAMPLE-2-CHILD-1'
 
 
 def test_get_sample_by_permid(openbis_instance):
     response = openbis_instance.get_sample('20130415091923485-402')
     assert response is not None
-    assert response['20130415091923485-402'] is not None
+    assert response.permid == '20130415091923485-402'
 
 
-def test_get_parents(openbis_instance):
+def test_get_sample_parents(openbis_instance):
     id = '/TEST/TEST-SAMPLE-2'
-    response = openbis_instance.get_sample(id)
-    assert response is not None
-    assert 'parents' in response[id]
-    assert 'identifier' in response[id]['parents'][0]
-    assert response[id]['parents'][0]['identifier']['identifier'] == '/TEST/TEST-SAMPLE-2-PARENT'
+    sample = openbis_instance.get_sample(id)
+    assert sample is not None
+    assert 'parents' in sample.data
+    assert 'identifier' in sample.data['parents'][0]
+    assert sample.data['parents'][0]['identifier']['identifier'] == '/TEST/TEST-SAMPLE-2-PARENT'
+    parents = sample.get_parents()
+    assert isinstance(parents, list)
+    assert parents[0].ident == '/TEST/TEST-SAMPLE-2-PARENT' 
+
+def test_get_sample_children(openbis_instance):
+    id = '/TEST/TEST-SAMPLE-2'
+    sample = openbis_instance.get_sample(id)
+    assert sample is not None
+    assert 'children' in sample.data
+    assert 'identifier' in sample.data['children'][0]
+    assert sample.data['children'][0]['identifier']['identifier'] == '/TEST/TEST-SAMPLE-2-CHILD-1'
+    children = sample.get_children()
+    assert isinstance(children, list)
+    assert children[0].ident == '/TEST/TEST-SAMPLE-2-CHILD-1' 
 
 
 def test_get_dataset_parents(openbis_instance):
