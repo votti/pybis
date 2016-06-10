@@ -9,13 +9,16 @@ Created by Chandrasekhar Ramakrishnan on 2016-05-25.
 Copyright (c) 2016 ETH Zuerich All rights reserved.
 """
 
-from jupyterhub.auth import LocalAuthenticator
-from pybis.pybis import Openbis
-
+import os
 import re
 
+from jupyterhub.auth import LocalAuthenticator
 from tornado import gen
 from traitlets import Unicode, Bool
+
+from pybis.pybis import Openbis
+
+user_to_openbis_dict = {}
 
 
 class OpenbisAuthenticator(LocalAuthenticator):
@@ -54,7 +57,15 @@ class OpenbisAuthenticator(LocalAuthenticator):
         openbis = Openbis(self.server_url, verify_certificates=self.verify_certificates)
         try:
             openbis.login(username, password, True)
+            user_to_openbis_dict[username] = openbis
             return username
         except ValueError as err:
             self.log.warn(str(err))
             return None
+
+    def pre_spawn_start(self, user, spawner):
+        """Write the token to a file"""
+        openbis = user_to_openbis_dict.get(user.name)
+        if openbis is not None:
+            token_folder = os.path.expanduser("~"+user.name)
+            openbis.save_token(token_folder)
