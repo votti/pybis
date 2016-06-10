@@ -447,3 +447,4 @@ c.LocalAuthenticator.create_system_users = True
 # OpenbisAuthenticator configuration
 #------------------------------------------------------------------------------
 c.OpenbisAuthenticator.server_url = "https://localhost:8443"
+c.OpenbisAuthenticator.verify_certificates = False
