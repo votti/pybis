@@ -10,18 +10,24 @@ Copyright (c) 2016 ETH Zuerich All rights reserved.
 """
 
 from jupyterhub.auth import LocalAuthenticator
-from pybis.pybis import Openbis, OpenbisCredentials
+from pybis.pybis import Openbis
 
 import re
 
 from tornado import gen
-from traitlets import Unicode
+from traitlets import Unicode, Bool
 
 
 class OpenbisAuthenticator(LocalAuthenticator):
     server_url = Unicode(
         config=True,
         help='URL of openBIS server to contact'
+    )
+
+    verify_certificates = Bool(
+        config=True,
+        default_value=True,
+        help='Should certificates be verified? Normally True, but maybe False for debugging.'
     )
 
     valid_username_regex = Unicode(
@@ -45,7 +51,7 @@ class OpenbisAuthenticator(LocalAuthenticator):
             self.log.warn('Empty password')
             return None
 
-        openbis = Openbis(self.server_url)
+        openbis = Openbis(self.server_url, verify_certificates=self.verify_certificates)
         try:
             openbis.login(username, password, True)
             return username

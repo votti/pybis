@@ -87,7 +87,7 @@ class OpenbisCredentialStore:
 class Openbis:
     """Interface for communicating with openBIS."""
 
-    def __init__(self, url):
+    def __init__(self, url, verify_certificates=True):
         """Initialize an interface to openBIS with information necessary to connect to the server.
         :param host:
         """
@@ -102,6 +102,7 @@ class Openbis:
         self.hostname = url_obj.hostname
         self.v3_as = '/openbis/openbis/rmi-application-server-v3.json'
         self.v1_as = '/openbis/openbis/rmi-general-information-v1.json'
+        self.verify_certificates = verify_certificates
 
         self.token_filename = os.path.join(os.path.expanduser("~"), '.pybis', self.hostname + '.token')
         try: 
@@ -126,7 +127,7 @@ class Openbis:
 
 
     def post_request(self, resource, data):
-        resp = requests.post(self.url + resource, json.dumps(data))
+        resp = requests.post(self.url + resource, json.dumps(data), verify=self.verify_certificates)
 
         if resp.ok:
             if 'error' in resp.json():
