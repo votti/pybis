@@ -1,6 +1,7 @@
 import json
 from pybis import DataSet
 from pybis import Openbis
+from pybis import DataSetUpload
 
 def test_token(openbis_instance):
     assert openbis_instance.hostname is not None
@@ -38,6 +39,7 @@ def test_get_sample_parents(openbis_instance):
     parents = sample.get_parents()
     assert isinstance(parents, list)
     assert parents[0].ident == '/TEST/TEST-SAMPLE-2-PARENT' 
+
 
 def test_get_sample_children(openbis_instance):
     id = '/TEST/TEST-SAMPLE-2'
@@ -86,4 +88,30 @@ def test_get_dataset_by_permid(openbis_instance):
     assert file_list is not None
     assert len(file_list) > 10
 
- 
+
+def test_dataset_upload(openbis_instance):
+    datastores = openbis_instance.get_datastores()
+    assert datastores is not None
+    assert isinstance(datastores, list)
+
+    filename = 'testfile.txt'
+    with open(filename, 'w') as f:
+        f.write('test-data')
+
+    # parents are optional
+    my_dataset.upload_analysis(
+        name = "My analysis",                       # !mandatory; name of the container
+        description = "a description",              # optional
+        sample = sample,                            # optional, my_dataset.sample is the default
+        result_files = "~/my_wonderful_results/",   # !mandatory; path of my results
+       # result_files = ["~/my_result.csv"],        # !mandatory, if no path was given
+        result_recursive = True,                    # default; recursive search if a path was given
+        result_file_match = "*",                    # default; match any file if a path was given
+        notebook_files = "~/notebooks/",            # optional,
+       # notebook_files = ["notebook.ipynb"],       # optional, specify a specific notebook
+       # notebook_files = "~/notebooks"             # one single path instead of a list
+        parents = [parent_dataset1],                # other parents are optional, my_dataset is the default parent
+    )
+
+
+
