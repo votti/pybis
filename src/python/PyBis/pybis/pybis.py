@@ -87,7 +87,7 @@ class OpenbisCredentialStore:
 class Openbis:
     """Interface for communicating with openBIS."""
 
-    def __init__(self, url):
+    def __init__(self, url, verify_certificates=True):
         """Initialize an interface to openBIS with information necessary to connect to the server.
         :param host:
         """
@@ -102,31 +102,46 @@ class Openbis:
         self.hostname = url_obj.hostname
         self.v3_as = '/openbis/openbis/rmi-application-server-v3.json'
         self.v1_as = '/openbis/openbis/rmi-general-information-v1.json'
+        self.verify_certificates = verify_certificates
+        self.token = None
+        self.initialize_token()
 
-        self.token_filename = os.path.join(os.path.expanduser("~"), '.pybis', self.hostname + '.token')
-        try: 
-            with open(self.token_filename) as f:
+    def initialize_token(self):
+        """Read the token from the cache, and set the token ivar to it, if there, otherwise None."""
+        token_path = self.token_path()
+        if not os.path.exists(token_path):
+            self.token = None
+            return
+        try:
+            with open(token_path) as f:
                 self.token = f.read()
                 if not self.is_token_valid():
                     self.token = None
-                    os.remove(self.token_filename)
+                    os.remove(token_path)
         except FileNotFoundError:
             self.token = None
-
 
     def token(self):
         if self.token is None:
             raise ValueError('no valid session available')
 
 
-    def save_token(self):
-        os.makedirs(os.path.dirname(self.token_filename), exist_ok=True)
-        with open(self.token_filename, 'w') as f:
+    def token_path(self, parent_folder=None):
+        """Return the path to the token file."""
+        if parent_folder is None:
+            parent_folder = os.path.expanduser("~")
+        path = os.path.join(parent_folder, '.pybis', self.hostname + '.token')
+        return path
+
+    def save_token(self, parent_folder=None):
+        token_path = self.token_path(parent_folder)
+        os.makedirs(os.path.dirname(token_path), exist_ok=True)
+        with open(token_path, 'w') as f:
             f.write(self.token)
 
 
     def post_request(self, resource, data):
-        resp = requests.post(self.url + resource, json.dumps(data))
+        resp = requests.post(self.url + resource, json.dumps(data), verify=self.verify_certificates)
 
         if resp.ok:
             if 'error' in resp.json():
