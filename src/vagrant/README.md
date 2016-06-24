@@ -1,6 +1,6 @@
-# Use
+# Getting started with Vagrant, openBIS and JupyterHub
 
-Vagrant automates the creation of virtual environments. Here, we use vagrant to define an environment for running jupyterhub together with
+Vagrant automates the creation of virtual environments. Here, we use vagrant to define an environment for running JupyterHub together with
 openBIS. You can download Vagrant from this website:
 
 https://www.vagrantup.com
@@ -10,28 +10,56 @@ Vagrant needs a virtualizing software in order to run the virtual machine. Vagra
 When setting up a machine the first time, Vagrant reads a file called Â«VagrantfileÂ». This file contains information about which OS template to start with (we use CentOS 7). It then continues with all the shell commandos in order to set up our virtual machine.
 
 
-## First Run
-
-0. cd to src/vagrant
+## Setting up the virtual machine (vagrant)
+0. cd to `src/vagrant`
 1. `vagrant plugin install vagrant-vbguest`
-2. `vagrant up --provision --provider virtualbox` -- this will read Vagrantfile and provision a CentOS 7 VM and install most software prerequisites (python, jupyterhub, etc.). This can take a while and needs a fast internet connection too.
-3. Download openBIS and put it in the vagrant folder so it is visible within the VM.
-4. `vagrant ssh` -- log into the machine.
-5. Install openbis
-  1. `cd sync/[openbis-installation]`
-  2. `cp /vagrant/config/openbis/console.properties ./` -- Use the provided console.properties or create your own.
-  2. `chmod a+rw ./console.properties` -- This file needs to be read and writable for installation to work.
-  3. `sudo su openbis`
-  4. `./run-console.sh`
-  5. `/home/openbis/bin/post-install/0-create-initial-users.sh` -- this script does not automatically run for some reason
-6. Make sure the dss service.properties file has the correct password for the etlserver
-7. `exit` -- Reverse the sudo su openbis and return to being the vagrant user
-8. `sync/initialize/start_services.sh` -- start openbis and jupyterhub
+2. `vagrant up --provision --provider virtualbox` -- this will read `Vagrantfile` and provision a CentOS 7 VM and install most software prerequisites (python, JupyterHub, etc.). This can take a while and needs a fast internet connection too.
+3. Commands to control the machine:
+    - `vagrant halt` -- shut down machine
+    - `vagrant up`   -- restart machine
+    - `vagrant ssh`  -- log in
+4. all vagrant commands need to be executed inside the `/vagrant` directory, because the command always reads the `Vagrantfile`
 
 
-## Subsequent Runs
+## using an existing openBIS instance and start JupyterHub
+If you already have a running openBIS instance and want your JupyterHub users authenticate against that server:
+1. edit the file `src/vagrant/config/jupyterhub/jupyterhub_config.py`
+2. change the last line to point to your openBIS instance: `c.OpenbisAuthenticator.server_url = "https://localhost:8443"`
+3. start JupyterHub: `vagrant ssh -c sync/initialize/start_jupyterhub.sh`
+4. point your browser to `https://localhost:8000` and log in with your openBIS username and password.
+3. stop JupyterHub `vagrant ssh -c sync/initialize/stop_jupyterhub.sh`
+5. if you want to change change the default-port of JupyterHub (:8000), edit the `jupyterhub_config.py` and change the line `c.JupyterHub.port = 8000`
 
-1. `vagrant up`
-2. `vagrant ssh`
-3. `sync/initialize/start_services.sh`
+
+## installing openBIS on the virtual machine (optional)
+1. download openBIS https://wiki-bsse.ethz.ch/display/bis/Production+Releases
+2. untar it and put the folder in the `src/vagrant/` folder
+4. restart the virtual machine to make the openBIS folder visible within the virtual machine. 
+   - `vagrant halt` -- shut down machine
+   - `vagrant up`   -- restart machine
+5. `vagrant ssh`  -- log into the virtual machine
+6. install openBIS (inside the virtual machine)
+   - `cd /vagrant/[openbis-installation]`
+   - `cp /vagrant/config/openbis/console.properties ./` -- Use the provided console.properties or create your own.
+   - `chmod a+rw ./console.properties` -- This file needs to be read and writable for installation to work.
+   - `sudo su openbis`
+   - `./run-console.sh`
+   - wait until `/home/openbis/bin/post-install/0-create-initial-users.sh` appears. This script does not automatically run for some reason. Terminate it by pressing CTRL-C
+   - run `/home/openbis/bin/post-install/0-create-initial-users.sh` manually
+   - enter a password for the **admin** and the **etlserver** user when asked
+7. Edit the file `/home/openbis/servers/datastore_server/etc/service.properties` 
+   - look for the `etlserver` user and enter its password
+8. `exit` -- Reverse the sudo su openbis and return to being the vagrant user
+9. enter the command ``echo "127.0.0.1" `hostname` ``
+10. copy the output and add it to /etc/hosts: `sudo vi /etc/hosts` so that Java is happy
+11. `exit` -- log off the virtual machine
+
+## start openBIS and JupyterHub, create a user
+10. `vagrant ssh -c sync/initialize/start_services.sh` -- start openBIS and JupyterHub
+11. point your browser to `https://localhost:8443/openbis/` and check whether your server is up and running. Try logging in as an admin
+    user, for example.
+12. point your browser to the ELN-LIMS Lab notebook running at `https://localhost:8443/openbis/webapp/eln-lims/` and log in as admin
+13. go to Utilities -> User Manager, click on the Operations dropdown and choose «Create User»
+14. enter a username (User ID) and a password to create a new user in openBIS (this may a while)
+15. check the AS and DSS logs if you encounter any problems: `/home/openbis/bin/bislog.sh` and `/home/openbis/bin/dsslog.sh`
 
