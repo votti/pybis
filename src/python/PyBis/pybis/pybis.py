@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 import threading
 from threading import Thread
 from queue import Queue
-
+DROPBOX_PLUGIN = "jupyter-uploader-api"
 
 class OpenbisCredentials:
     """Credentials for communicating with openBIS."""
@@ -167,6 +167,18 @@ class Openbis:
         }
         result = self.post_request(self.v3_as, login_request)
         self.token = result
+
+
+    def get_datastores(self):
+        datastores = []
+        request = {
+            "method": "listDataStores",
+            "params": [ self.token ],
+            "id": "1",
+            "jsonrpc": "2.0"
+        }
+        resp = self.post_request(self.v1_as, request)
+        return resp
         
 
     def is_token_valid(self):
@@ -189,6 +201,17 @@ class Openbis:
 
 
     def get_dataset(self, permid):
+        """fetch a dataset and some metadata attached to it:
+        - properties
+        - sample
+        - parents
+        - children
+        - containers
+        - dataStore
+        - physicalData
+        - linkedData
+        :return: a DataSet object
+        """
 
         dataset_request = {
             "method": "getDataSets",
@@ -309,24 +332,6 @@ class Openbis:
             for sample_ident in resp:
                 return Sample(self, sample_ident, resp[sample_ident])
 
-        
-
-    def get_samples_with_data(self, sample_identifiers):
-        """Retrieve metadata for the sample, like get_sample_metadata, but retrieve any data sets as well,
-        like get_data_set.
-        :param sample_identifiers: A list of sample identifiers to retrieve.
-        """
-        pass
-        # TODO Implement the logic of this method
-
-
-    def get_data_sets(self, data_set_identifiers):
-        """Retrieve data set metadata and content.
-        The metadata will be on the file system. The file will also include the location of the data.
-        """
-        pass
-        # TODO Implement the logic of this method
-
 
     def create_data_set_from_notebook(self, path_to_notebook, owner_identifier, paths_to_files,
                                       parent_identifiers):
@@ -359,6 +364,7 @@ class DataSetDownloadQueue:
         """
         self.download_queue.put(things)
 
+
     def join(self):
         """ needs to be called if you want to wait for all downloads to be finished
         """
@@ -379,6 +385,73 @@ class DataSetDownloadQueue:
                         f.write(chunk)
 
             self.download_queue.task_done()
+
+
+class DataSetUpload:
+    
+    def __init__(self, openbis_obj, datastore, filename):
+        self.openbis = openbis_obj
+        self.datastore = datastore
+        self.filename = filename
+        self.sample = None
+        self.container = None
+        self.dataset = None
+        self.startByte = 0
+        self.endByte   = 0
+        self.container = {
+            "name": "Analysis name",
+            "description": "This is a description of my analysis"
+        }
+        self.dataSet = {
+            "permId" : "....."
+        }
+        self.result = {
+            "fileNames": self.result["fileNames"],
+        }
+        self.notebook = {
+            "fileNames": self.notebook["fileNames"],
+        }
+        self.sample
+
+    
+
+    def upload_file(self):
+        print(self.datastore)
+        upload_url = (
+            self.datastore["downloadUrl"] + '/session_workspace_file_upload'
+            + '?filename=' + 'testtest'
+            + '&id=1'
+            + '&startByte=0&endByte=0'
+            + '&sessionID=' + self.openbis.token
+        )
+
+        with open(self.filename, 'rb') as f:
+            resp = requests.post(upload_url, data=f)
+            resp.raise_for_status()
+
+    def start_registering(self):
+        request = {
+            "method": "createReportFromAggregationService",
+            "params": [
+                self.openbis.token,
+                self.datastore["code"],
+                DROPBOX_PLUGIN,
+                {
+                "method": "insertDataSet",
+                "sessionToken": self.openbis.token, 
+                "sample": self.sample,
+                "container" : self.container,
+                "dataSet": self.dataSet,
+                "result": self.result,
+                "notebook": self.notebook,
+                "parents": self.parents
+                }
+            ],
+            "id": "1",
+            "jsonrpc": "2.0"
+        }
+
+        resp = self.post_request(self.v3_as, request)
 
 
 class DataSet(Openbis):
