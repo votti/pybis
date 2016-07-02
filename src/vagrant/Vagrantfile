@@ -40,6 +40,7 @@ Vagrant.configure(2) do |config|
   config.vm.synced_folder "../python", "/vagrant_python"
   config.vm.synced_folder "initialize", "/vagrant_initialize"
   config.vm.synced_folder "./", "/vagrant"
+  config.vm.synced_folder "../core-plugins", "/vagrant_core-plugins"
 
   # Provider-specific configuration so you can fine-tune various
   # backing providers for Vagrant. These expose provider-specific options.
@@ -87,4 +88,13 @@ Vagrant.configure(2) do |config|
   # config.vm.provision :shell, run: "always", inline: "jupyter notebook --no-browser --ip=0.0.0.0 &"
   # config.vm.provision :shell, run: "always", inline: "sudo jupyterhub -f sync/config/jupyterhub/jupyterhub_config_basic.py --no-ssl &"
   # config.vm.provision :shell, run: "always", inline: "sudo -u rhea jupyterhub -f sync/config/jupyterhub/jupyterhub_config_sudo.py --no-ssl &"
+
+
+  # update /etc/hostname
+  #vm.provision :shell do |sh|
+  #  sh.inline = "echo '127.0.0.1 appserver' >> /etc/hosts
+  #  echo 'appserver' > /etc/hostname
+  #  hostname `cat /etc/hostname`"
+  #end
 end
+
