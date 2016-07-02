@@ -36,6 +36,13 @@ pip install git+https://github.com/jupyter/sudospawner
 # To set up jupyter hub, follow the instructions https://github.com/jupyterhub/jupyterhub/wiki/Using-sudo-to-run-JupyterHub-without-root-privileges
 # Though sudospanwer has already been installed
 
+# Install often used python packages
+pip install scipy
+pip install numpy
+pip install pandas
+pip install matplotlib
+pip install requests
+
 # Install our python packages
 pip install -e /vagrant_python/PyBis/
 pip install -e /vagrant_python/JupyterBis/
