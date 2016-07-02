@@ -6,7 +6,7 @@ from pybis import Openbis
 def openbis_instance():
     instance = Openbis("http://localhost:20000")
     print("\nLOGGING IN...")
-    instance.login()
+    instance.login('admin','anypassword')
     yield instance
     instance.logout()
     print("LOGGED OUT...")

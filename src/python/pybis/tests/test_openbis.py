@@ -1,4 +1,5 @@
 import json
+import pytest
 from pybis import DataSet
 from pybis import Openbis
 from pybis import DataSetUpload
@@ -6,21 +7,29 @@ from pybis import DataSetUpload
 def test_token(openbis_instance):
     assert openbis_instance.hostname is not None
     new_instance = Openbis(openbis_instance.url)
-    new_instance.login()
+    new_instance.login('admin', 'any_test_password')
     assert new_instance.token is not None
     assert new_instance.is_token_valid() is True
     new_instance.logout()
     assert new_instance.is_token_valid() is False
 
     openbis_instance.save_token()
-    another_instance = Openbis(openbis_instance.url)
+    another_instance = Openbis(openbis_instance.url, use_cached_token=True)
     assert another_instance.is_token_valid() is True
+
+    invalid_connection = Openbis(openbis_instance.url)
+    with pytest.raises(Exception):
+        invalid_connection.login('invalid_username', 'invalid_password')
+    assert invalid_connection.token is None
+    assert invalid_connection.is_token_valid() is False
 
 
 def test_get_sample_by_id(openbis_instance):
-    response = openbis_instance.get_sample('/TEST/TEST-SAMPLE-2-CHILD-1')
-    assert response is not None
-    assert response.ident == '/TEST/TEST-SAMPLE-2-CHILD-1'
+    ident = '/TEST/TEST-SAMPLE-2-CHILD-1'
+    sample = openbis_instance.get_sample(ident)
+    assert sample is not None
+    assert sample.ident == ident
+    assert sample.permid == '20130415095823341-405'
 
 
 def test_get_sample_by_permid(openbis_instance):
@@ -33,9 +42,8 @@ def test_get_sample_parents(openbis_instance):
     id = '/TEST/TEST-SAMPLE-2'
     sample = openbis_instance.get_sample(id)
     assert sample is not None
-    assert 'parents' in sample.data
-    assert 'identifier' in sample.data['parents'][0]
-    assert sample.data['parents'][0]['identifier']['identifier'] == '/TEST/TEST-SAMPLE-2-PARENT'
+    assert sample.parents is not None
+    assert sample.parents[0]['identifier']['identifier'] == '/TEST/TEST-SAMPLE-2-PARENT'
     parents = sample.get_parents()
     assert isinstance(parents, list)
     assert parents[0].ident == '/TEST/TEST-SAMPLE-2-PARENT' 
@@ -45,9 +53,8 @@ def test_get_sample_children(openbis_instance):
     id = '/TEST/TEST-SAMPLE-2'
     sample = openbis_instance.get_sample(id)
     assert sample is not None
-    assert 'children' in sample.data
-    assert 'identifier' in sample.data['children'][0]
-    assert sample.data['children'][0]['identifier']['identifier'] == '/TEST/TEST-SAMPLE-2-CHILD-1'
+    assert sample.children is not None
+    assert sample.children[0]['identifier']['identifier'] == '/TEST/TEST-SAMPLE-2-CHILD-1'
     children = sample.get_children()
     assert isinstance(children, list)
     assert children[0].ident == '/TEST/TEST-SAMPLE-2-CHILD-1' 
@@ -76,7 +83,6 @@ def test_get_dataset_by_permid(openbis_instance):
     dataset = openbis_instance.get_dataset(permid)
     assert dataset is not None
     assert isinstance(dataset, DataSet)
-    assert isinstance(dataset, Openbis)
     assert 'dataStore' in dataset.data
     assert 'downloadUrl' in dataset.data['dataStore']
     file_list = dataset.get_file_list(recursive=False)
@@ -98,20 +104,31 @@ def test_dataset_upload(openbis_instance):
     with open(filename, 'w') as f:
         f.write('test-data')
 
-    # parents are optional
-    my_dataset.upload_analysis(
-        name = "My analysis",                       # !mandatory; name of the container
-        description = "a description",              # optional
-        sample = sample,                            # optional, my_dataset.sample is the default
-        result_files = "~/my_wonderful_results/",   # !mandatory; path of my results
-       # result_files = ["~/my_result.csv"],        # !mandatory, if no path was given
-        result_recursive = True,                    # default; recursive search if a path was given
-        result_file_match = "*",                    # default; match any file if a path was given
-        notebook_files = "~/notebooks/",            # optional,
-       # notebook_files = ["notebook.ipynb"],       # optional, specify a specific notebook
-       # notebook_files = "~/notebooks"             # one single path instead of a list
-        parents = [parent_dataset1],                # other parents are optional, my_dataset is the default parent
+    ds = openbis_instance.new_dataset(
+        opk
+        name        = "My Dataset",
+        description = "description",
+        type        = "UNKNOWN",
+        sample      = sample,
+        files       = ["testfile.txt"],
     )
 
+
+
+    analysis = openbis_instance.new_analysis(
+        name = "My analysis",                       # * name of the container
+        description = "a description",              # 
+        sample = sample,                            #   my_dataset.sample is the default
+
+        # result files will be registered as JUPYTER_RESULT datatype
+        result_files = ["my_wonderful_result.txt"], #   path of my results
+
+        # jupyter notebooks file will be registered as JUPYTER_NOTEBOOk datatype
+        notebook_files = ["notebook.ipynb"],        #   specify a specific notebook
+        #notebook_files = "~/notebooks/",           #   path of notebooks
+        parents = [parent_dataset],                 # other parents are optional, my_dataset is the default parent
+    )
+
+    analysis.save     # start registering process
 
 
