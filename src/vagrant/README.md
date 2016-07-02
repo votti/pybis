@@ -1,5 +1,16 @@
 # Getting started with Vagrant, openBIS and JupyterHub
 
+## How this folder is organized
+
+- `Vagrantfile` -- includes all information how the virtual machine needs to be set up: including synched folders, port forwarding, shell scripts to run, memory consumption etc.
+- `initialize/` -- folder contains shell scripts that are run during the provisioning process (`setup_*`) and some `start_*` and `stop_*` scripts to start services on the virtual machine (eg. JupyterHub, openBIS)
+- `config/` -- folder contains configuration files for JupyterHub, openBIS and Postgres database.
+
+The `initialize/` folder is synched, which means it is visible inside the virtual machine. 
+
+
+## About Vagrant virtual environment
+
 Vagrant automates the creation of virtual environments. Here, we use vagrant to define an environment for running JupyterHub together with
 openBIS. You can download Vagrant from this website:
 
@@ -10,7 +21,9 @@ Vagrant needs a virtualizing software in order to run the virtual machine. Vagra
 When setting up a machine the first time, Vagrant reads a file called Â«VagrantfileÂ». This file contains information about which OS template to start with (we use CentOS 7). It then continues with all the shell commandos in order to set up our virtual machine.
 
 
+
 ## Setting up the virtual machine (vagrant)
+
 0. cd to `src/vagrant`
 1. `vagrant plugin install vagrant-vbguest`
 2. `vagrant up --provision --provider virtualbox` -- this will read `Vagrantfile` and provision a CentOS 7 VM and install most software prerequisites (python, JupyterHub, etc.). This can take a while and needs a fast internet connection too.
@@ -19,6 +32,7 @@ When setting up a machine the first time, Vagrant reads a file called Â«Vagrantf
     - `vagrant up`   -- restart machine
     - `vagrant ssh`  -- log in
 4. all vagrant commands need to be executed inside the `/vagrant` directory, because the command always reads the `Vagrantfile`
+
 
 
 ## using an existing openBIS instance and start JupyterHub
@@ -54,7 +68,9 @@ If you already have a running openBIS instance and want your JupyterHub users au
 10. copy the output and add it to /etc/hosts: `sudo vi /etc/hosts` so that Java is happy
 11. `exit` -- log off the virtual machine
 
+
 ## start openBIS and JupyterHub, create a user
+
 10. `vagrant ssh -c sync/initialize/start_services.sh` -- start openBIS and JupyterHub
 11. point your browser to `https://localhost:8443/openbis/` and check whether your server is up and running. Try logging in as an admin
     user, for example.
@@ -62,4 +78,5 @@ If you already have a running openBIS instance and want your JupyterHub users au
 13. go to Utilities -> User Manager, click on the Operations dropdown and choose «Create User»
 14. enter a username (User ID) and a password to create a new user in openBIS (this may a while)
 15. check the AS and DSS logs if you encounter any problems: `/home/openbis/bin/bislog.sh` and `/home/openbis/bin/dsslog.sh`
+
 
