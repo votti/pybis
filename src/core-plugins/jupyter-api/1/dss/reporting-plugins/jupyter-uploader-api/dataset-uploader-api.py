@@ -30,8 +30,8 @@ import time
 import subprocess
 import os
 import re
+import sys
 
-CONTAINER_NAME = 'NAME'
 
 
 def getSampleByIdentifier(transaction, identifier):
@@ -49,13 +49,13 @@ def getSampleByIdentifier(transaction, identifier):
         return transaction.makeSampleMutable(found[0]);
     else:
         raise UserFailureException(identifier + "Not found by search service.");
-        
+
 
 def get_dataset_for_name(transaction, dataset_name):
 
     search_service = transaction.getSearchService()
     criteria = SearchCriteria()
-    criteria.addMatchClause(MatchClause.createPropertyMatch(CONTAINER_NAME, dataset_name))
+    criteria.addMatchClause(MatchClause.createPropertyMatch('NAME', dataset_name))
 
     found = list(search_service.searchForDataSets(criteria))
     if len(found) == 1:
@@ -84,39 +84,63 @@ def get_username_sessionid(sessionToken):
 
 
 def process(transaction, parameters, tableBuilder):
+    ''' 
+    This method is called from openBIS DSS.
+    The transaction object has a number of methods described in ...
+    The parameters are passed with the createReportFromAggregationService method
+    and need to be accessed like this:
+       parameters.get('my_param')
+    tableBuilder is needed to create an appropiate return message.
+    A number of magic variables are present, described in PluginScriptRunnerFactory:
+    - userSessionToken : the Session Token used by every call
+    - userId           : the username
+    - searchService    :
+    - searchServiceUnfiltered :
+    - queryService     :
+    - mailService      :
+    - authorizationService :
+    - contentProvider  :
+    - contentProviderUnfiltered 
 
+    '''
     # check for mandatory parameters
-    for param in ('sample', 'container', 'sessionToken'):
+    for param in ('sample', 'container'):
         if parameters.get(param) is None:
             raise UserFailureException("mandatory parameter " + param + " is missing")
 
-    # Obtain the user using the dropbox
-    # TODO Is this necessary? user is already in the transaction...
-    sessionToken = parameters.get("sessionToken")
-    username, sessionId = get_username_sessionid(sessionToken)
-
-    ## TODO where does userId come from?
-    #if sessionId == userId:
-    #    transaction.setUserId(userId)
-    #else:
-    #    errorMessage = "[SECURITY] User " + userId + " tried to use " + sessionId + " account, this will be communicated to the admin."
-    #    print(errorMessage)
-    #    raise UserFailureException(errorMessage)
-
+#    print(str(transaction.getOpenBisServiceSessionToken()))
+    # all print statements are written to openbis/servers/datastore_server/log/startup_log.txt
+    print('userSessionToken: ' + userSessionToken)
 
     # get mandatory sample to connect the container to
     sampleIdentifier = parameters.get("sample").get("identifier")
+    print('sampleIdentifier: ' + sampleIdentifier)
     if sampleIdentifier is None:
         raise UserFailureException('mandatory parameter sample["identifier"] is missing')
     sample = getSampleByIdentifier(transaction, sampleIdentifier)
     if sample == None: 
         raise UserFailureException("no sample found with this identifier: " + sampleIdentifier)
 
-    container = registerContainer(transaction, sample, parameters)
-    result_ds = registerResultFiles(transaction, sample, container, parameters)
-    notebook = registerNotebook(transaction, sample, container, parameters)
+    #container = registerContainer(transaction, sample, parameters)
+    #everything_ok = register_files(transaction, sample, container, parameters)
+    if parameters.get("result").get("fileNames") is not None:
+        everything_ok = register_files(
+            transaction, 
+            "JUPYTER_RESULT",
+            sample, 
+            'container', 
+            parameters.get("result").get("fileNames")
+        )
 
-    everything_ok = True
+    if parameters.get("notebook").get("fileNames") is not None:
+        everything_ok = register_files(
+            transaction, 
+            "JUPYTER_NOTEBOOK",
+            sample, 
+            'container',
+            parameters.get("notebook").get("fileNames")
+        )
+
     
     # create the dataset
     if everything_ok:
@@ -150,13 +174,20 @@ def getThreadProperties(transaction):
 
 def registerContainer(transaction, sample, parameters):
 
+    container_name = parameters.get("container").get("name")
+    container_description = parameters.get("container").get("description")
+
     # make sure container dataset doesn't exist yet
-    container = get_dataset_for_name(transaction, parameters.get("container").get("name"))
+    container = get_dataset_for_name(transaction, container_name)
     if container is None:
-        # Create new container
+        print("creating JUPYTER_CONTAINER dataset...")
+        # Create new container (a dataset of type "JUPYTER_CONTAINER")
         container = transaction.createNewDataSet("JUPYTER_CONTAINER")
         container.setSample(sample)
-        container.setParentDatasets(parameters.get("parents"))
+        container.setPropertyValue("NAME", container_name)
+        container.setPropertyValue("DESCRIPTION", container_description)
+        #container.setParentDatasets(parameters.get("parents"))
+        print("JUPYTER_CONTAINER permId: " + container.getDataSetCode())
 
     # Assign Data Set properties
     # set name and description
@@ -166,60 +197,70 @@ def registerContainer(transaction, sample, parameters):
             propertyValue = None
         container.setPropertyValue(key,propertyValue)
 
+    # TODO: container registrieren, aber wie???
+    #transaction.moveFile(None, container);
     return container
 
-def registerResultFiles(transaction, sample, container, parameters):
+def register_files(transaction, dataset_type, sample, container, file_names):
     """ creates a new dataset of type JUPYTER_RESULT.
-    the parent dataset is the container.
-    - copies the result files in a temp dir close to the DSS
-    - moves the result files to the DSS
+    the parent dataset is the JUPYTER_CONTAINER we just created
+    - the result files are copied from the session workspace
+      to a temp dir close to the DSS: prepareFilesForRegistration()
+    - from there, the files are moved to the DSS: transaction.moveFile()
+    - finally, the remaining files are deleted from the session workspace
     """
-    result_ds = transaction.createNewDataSet("JUPYTER_RESULT")
+    print("creating " + dataset_type + " dataset...")
+    result_ds = transaction.createNewDataSet(dataset_type)
     result_ds.setSample(sample)
-    parent_codes = [container.getDataSetCode()]
-    result_ds.setParentDatasets(parent_codes)
+    #result_ds.setParentDatasets([container.getDataSetCode()])
+    #print("JUPYTER RESULT permId: " + container.getDataSetCode())
     
-    files = parameters.get("result").get("fileNames")
-    folder = parameters.get("result").get("folerName")
-    temp_dir = prepareFilesForRegistration(transaction, files, 'results', parameters)
-
-    dss_service = ServiceProvider.getDssServiceRpcGeneric().getService()
-    session_token = parameters.get("sessionToken")
-
-    # Move result files to the result dataset
-    transaction.moveFile(temp_dir, result_ds)
+    # copy the files to the temp dir
+    temp_dir = prepareFilesForRegistration(transaction, file_names)
+    transaction.moveFile(File(temp_dir).getAbsolutePath(), result_ds);
 
     # ...and delete all files from the session workspace
-    for file_name in files:
-        file_path = os.path.join(temp_dir, file_name)
-        dss_service.deleteSessionWorkspaceFile(session_token, file_name)
+    # TODO: delete it later
+    #dss_service = ServiceProvider.getDssServiceRpcGeneric().getService()
+    #for file_name in file_names:
+    #    file_path = os.path.join(temp_dir, file_name)
+    #    dss_service.deleteSessionWorkspaceFile(userSessionToken, file_name)
 
-    return result_ds
+    return True
 
 
-def prepareFilesForRegistration(transaction, files, folder_name, parameters):
+def prepareFilesForRegistration(transaction, files=[]):
     """ Bring files to the same file system as the dropbox.
     The session workspace may be on a different file system from the dropbox.
     We need to ensure that all files are on the dropbox file system.
     """
     # create a local temp dir with a timestamp
     threadProperties = getThreadProperties(transaction)
-    temp_dir =  threadProperties[u'incoming-dir'] + '/' + folder_name + '/' + str(time.time())
-    temp_dirFile = File(temp_dir)
-    temp_dirFile.mkdirs()
+    #temp_dir =  os.path.join( threadProperties[u'incoming-dir'], str(time.time()) )
+    temp_dir =  threadProperties[u'incoming-dir']
+    File(temp_dir).mkdirs()
 
-    session_token = parameters.get("sessionToken")
     dss_service = ServiceProvider.getDssServiceRpcGeneric().getService()
 
     # download all files from the session workspace to the temp dir
     for file_name in files:
-        inputStream = dss_service.getFileFromSessionWorkspace(session_token, file_name)
-        file_path = File(os.path.join(temp_dir, file_name))
-        # file_name may contain a subfolder:
-        # create the necessary directory structure if they don't exist yet
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
-        outputStream = FileOutputStream(file_path)
+        # create input stream
+        print("file_name: " + file_name)
+        inputStream = dss_service.getFileFromSessionWorkspace(userSessionToken, file_name)
 
+        # ensure that all necessary folders exist
+        file_path = os.path.join(temp_dir, file_name)
+        print("file_path: "+file_path)
+        
+        try:
+            os.makedirs(os.path.dirname(file_path))
+        except:
+            pass
+        print("dirname: " + os.path.dirname(file_path))
+
+        # create output stream
+        tempFile = File(file_path)
+        outputStream = FileOutputStream(tempFile)
         IOUtils.copyLarge(inputStream, outputStream)
         IOUtils.closeQuietly(inputStream)
         IOUtils.closeQuietly(outputStream)
