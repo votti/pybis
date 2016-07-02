@@ -12,6 +12,9 @@ Copyright (c) 2016 ETH Zuerich. All rights reserved.
 
 import os
 import requests
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
+requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+
 import json
 import re
 from urllib.parse import urlparse
@@ -87,7 +90,7 @@ class OpenbisCredentialStore:
 class Openbis:
     """Interface for communicating with openBIS."""
 
-    def __init__(self, url, verify_certificates=True):
+    def __init__(self, url, verify_certificates=True, use_cached_token=False ):
         """Initialize an interface to openBIS with information necessary to connect to the server.
         :param host:
         """
@@ -100,11 +103,14 @@ class Openbis:
         self.url     = url_obj.geturl()
         self.port    = url_obj.port
         self.hostname = url_obj.hostname
-        self.v3_as = '/openbis/openbis/rmi-application-server-v3.json'
-        self.v1_as = '/openbis/openbis/rmi-general-information-v1.json'
+        self.as_v3 = '/openbis/openbis/rmi-application-server-v3.json'
+        self.as_v1 = '/openbis/openbis/rmi-general-information-v1.json'
+        self.reg_v1 = '/openbis/openbis/rmi-query-v1.json'
         self.verify_certificates = verify_certificates
         self.token = None
-        self.initialize_token()
+        if use_cached_token:
+            self.initialize_token()
+
 
     def initialize_token(self):
         """Read the token from the cache, and set the token ivar to it, if there, otherwise None."""
@@ -133,6 +139,7 @@ class Openbis:
         path = os.path.join(parent_folder, '.pybis', self.hostname + '.token')
         return path
 
+
     def save_token(self, parent_folder=None):
         token_path = self.token_path(parent_folder)
         os.makedirs(os.path.dirname(token_path), exist_ok=True)
@@ -144,10 +151,11 @@ class Openbis:
         resp = requests.post(self.url + resource, json.dumps(data), verify=self.verify_certificates)
 
         if resp.ok:
-            if 'error' in resp.json():
-                raise ValueError('an error has occured: ' + resp.json()['error'] )
-            elif 'result' in resp.json():
-                return resp.json()['result']
+            data = resp.json()
+            if 'error' in data:
+                raise ValueError('an error has occured: ' + data['error']['message'] )
+            elif 'result' in data:
+                return data['result']
             else:
                 raise ValueError('request did not return either result nor error')
         else:
@@ -155,6 +163,8 @@ class Openbis:
 
 
     def logout(self):
+        if self.token is None:
+            return
 
         logout_request = {
             "method":"logout",
@@ -162,11 +172,11 @@ class Openbis:
             "id":"1",
             "jsonrpc":"2.0"
         }
-        resp = self.post_request(self.v3_as, logout_request)
+        resp = self.post_request(self.as_v3, logout_request)
         return resp
 
 
-    def login(self, username='openbis_test_js', password='password', store_credentials=False):
+    def login(self, username=None, password=None, store_credentials=False):
         """Log into openBIS.
         Expects a username and a password and updates the token (session-ID).
         The token is then used for every request.
@@ -180,8 +190,11 @@ class Openbis:
             "id":"1",
             "jsonrpc":"2.0"
         }
-        result = self.post_request(self.v3_as, login_request)
-        self.token = result
+        result = self.post_request(self.as_v3, login_request)
+        if result is None:
+            raise ValueError("login to openBIS failed")
+        else:
+            self.token = result
 
 
     def get_datastores(self):
@@ -192,26 +205,29 @@ class Openbis:
             "id": "1",
             "jsonrpc": "2.0"
         }
-        resp = self.post_request(self.v1_as, request)
+        resp = self.post_request(self.as_v1, request)
         return resp
         
 
-    def is_token_valid(self):
+    def is_token_valid(self, token=None):
         """Check if the connection to openBIS is valid.
         This method is useful to check if a token is still valid or if it has timed out,
         requiring the user to login again.
         :return: Return True if the token is valid, False if it is not valid.
         """
-        if self.token is None:
+        if token is None:
+            token = self.token
+        
+        if token is None:
             return False
 
         request = {
             "method": "isSessionActive",
-            "params": [ self.token ],
+            "params": [ token ],
             "id": "1",
             "jsonrpc": "2.0"
         }
-        resp = self.post_request(self.v1_as, request)
+        resp = self.post_request(self.as_v1, request)
         return resp
 
 
@@ -270,7 +286,7 @@ class Openbis:
             "jsonrpc": "2.0"
         }
 
-        resp = self.post_request(self.v3_as, dataset_request)
+        resp = self.post_request(self.as_v3, dataset_request)
         if resp is not None:
             for permid in resp:
                 return DataSet(self, permid, resp[permid])
@@ -282,6 +298,9 @@ class Openbis:
         to the same information visible in the ELN UI. The metadata will be on the file system.
         :param sample_identifiers: A list of sample identifiers to retrieve.
         """
+
+        if self.token is None:
+            raise ValueError("Please login first")
 
         search_request = None
 
@@ -336,20 +355,102 @@ class Openbis:
                         "properties": {
                             "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
                         }
-                    }
+                    },
+                    "registrator": {
+                        "@type": "as.dto.person.fetchoptions.PersonFetchOptions",
+                    },
+                    "tags": {
+                        "@type": "as.dto.tag.fetchoptions.TagFetchOptions",
+                    },
                 }
             ],
             "id": sample_ident,
             "jsonrpc": "2.0"
         }
-        resp = self.post_request(self.v3_as, sample_request)
+        resp = self.post_request(self.as_v3, sample_request)
         if resp is not None:
             for sample_ident in resp:
-                return Sample(self, sample_ident, resp[sample_ident])
+                return Sample(self, resp[sample_ident])
 
 
-    def create_data_set_from_notebook(self, path_to_notebook, owner_identifier, paths_to_files,
-                                      parent_identifiers):
+    def delete_sample(self, permid, reason):
+        sample_delete_request = {
+            "method": "deleteSamples",
+            "params": [
+                self.token,
+                [
+                    {
+                        "permId": permid,
+                        "@type": "as.dto.sample.id.SamplePermId"
+                    }
+                ],
+                {
+                    "reason": reason,
+                    "@type": "as.dto.sample.delete.SampleDeletionOptions"
+                }
+            ],
+            "id": "1",
+            "jsonrpc": "2.0"
+        }
+        resp = self.post_request(self.as_v3, sample_delete_request)
+        return
+
+
+    def new_sample(self, sample_name=None, space_name=None, sample_type=None, tags=[]):
+        if sample_type is None:
+            sample_type = "UNKNOWN"
+
+        if isinstance(tags, str):
+            tags = [tags]
+        tag_ids = []
+        for tag in tags:
+            tag_dict = {
+                "code":tag,
+                "@type":"as.dto.tag.id.TagCode"
+            }
+            tag_ids.append(tag_dict)
+
+
+        sample_create_request = {
+            "method":"createSamples",
+            "params":[
+                self.token,
+                [
+                    {
+                    "properties":{},
+                    "typeId":{
+                        "permId": sample_type,
+                        "@type":"as.dto.entitytype.id.EntityTypePermId"
+                    },
+                    "code": sample_name,
+                    "spaceId":{
+                        "permId": space_name,
+                        "@type":"as.dto.space.id.SpacePermId"
+                    },
+                    "tagIds":tag_ids,
+                    "@type":"as.dto.sample.create.SampleCreation",
+                    "experimentId":None,
+                    "containerId":None,
+                    "componentIds":None,
+                    "parentIds":None,
+                    "childIds":None,
+                    "attachments":None,
+                    "creationId":None,
+                    "autoGeneratedCode":None
+                    }
+                ]
+            ],
+            "id":"1",
+            "jsonrpc":"2.0"
+        }
+        resp = self.post_request(self.as_v3, sample_create_request)
+        if 'permId' in resp[0]:
+            return self.get_sample(resp[0]['permId'])
+        else:
+            raise ValueError("error while trying to fetch sample from server: " + str(resp))
+
+
+    def new_analysis(self, name, description=None, sample=None, dss_code='DSS1', result_files=None, notebook_files=None, parents=[]):
         """Register a new data set with openBIS.
         :param path_to_notebook: The path to the Jupyter notebook that created this data set
         :param owner_identifier: The identifier of the sample that owns this data set.
@@ -357,8 +458,142 @@ class Openbis:
         :param parent_identifiers: A list of parents for the data set.
         :return:
         """
-        pass
-        # TODO Implement the logic of this method
+        if sample is None:
+            raise ValueError("please provide a sample object or id")
+
+        if name is None:
+            raise ValueError("please provide a name for the analysis")
+
+        sample_ident = None
+        if isinstance(sample, str):
+            sample_ident = sample
+        else:
+            sample_ident = sample.ident
+
+        result_folder = 'results/'
+        notebook_folder = 'notebooks/'
+        parameters = {
+            "method"   : "insertDataSet",
+            "sample"   : { "identifier": sample_ident },
+            "container": { "name": name, "description": description },
+        }
+        
+        # 1. upload the files to the session workspace
+        if result_files is not None:
+            wsp_files = self.upload_files(files=result_files, folder=result_folder)
+            parameters['result'] = { "fileNames" : wsp_files } 
+        if notebook_files is not None:
+            wsp_files = self.upload_files(files=notebook_files, folder=notebook_folder)
+            parameters['notebook'] = { "fileNames" : wsp_files }
+
+#        # 2. start registering files using the jupyter
+        register_request = {
+            "method": "createReportFromAggregationService",
+            "params": [
+                self.token,
+                dss_code,
+                DROPBOX_PLUGIN,
+                parameters,
+            ],
+            "id": "1",
+            "jsonrpc": "2.0"
+        }
+        resp = self.post_request(self.reg_v1, register_request)
+
+
+    def upload_files(self, dss_code=None, files=None, folder='', wait_until_finished=False):
+
+        for dss in self.get_datastores():
+            if dss_code is None:
+                # just take first DSS of all available DSSes if none was given
+                self.datastore_url = dss['downloadUrl']
+                break
+            elif dss['code'] == dss_code:
+                self.datastore_url = dss['downloadUrl']
+                break
+
+        if self.datastore_url is None:
+            raise ValueError("No such DSS code found: " + dss_code)
+        
+        if files is None:
+            raise ValueError("Please provide a filename.")
+
+        if isinstance(files, str):
+            files = [files]
+
+        self.files = files
+        self.startByte = 0
+        self.endByte   = 0
+    
+        # define a queue to handle the upload threads
+        queue = DataSetUploadQueue()
+
+        real_files = []
+        for filename in files:
+            if os.path.isdir(filename):
+                real_files.extend([os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser(filename)) for f in fn])
+            else:
+                real_files.append(os.path.join(filename))
+
+        # compose the upload-URL and put URL and filename in the upload queue 
+        files_in_wsp = []
+        for filename in real_files:
+            file_in_wsp = os.path.join(folder, filename)
+            files_in_wsp.append(file_in_wsp)
+            upload_url = (
+                self.datastore_url + '/session_workspace_file_upload'
+                + '?filename=' + os.path.join(folder,filename)
+                + '&id=1'
+                + '&startByte=0&endByte=0'
+                + '&sessionID=' + self.token
+            )
+            queue.put([upload_url, filename, self.verify_certificates])
+
+        # wait until all files have uploaded
+        if wait_until_finished:
+            queue.join()
+
+        # return files with full path in session workspace
+        return files_in_wsp
+
+
+class DataSetUploadQueue:
+   
+    def __init__(self, workers=20):
+        # maximum files to be uploaded at once
+        self.upload_queue = Queue()
+
+        # define number of threads and start them
+        for t in range(workers):
+            t = Thread(target=self.upload_file)
+            t.daemon = True
+            t.start()
+
+
+    def put(self, things):
+        """ expects a list [url, filename] which is put into the upload queue
+        """
+        self.upload_queue.put(things)
+
+
+    def join(self):
+        """ needs to be called if you want to wait for all uploads to be finished
+        """
+        self.upload_queue.join()
+
+
+    def upload_file(self):
+        while True:
+            # get the next item in the queue
+            upload_url, filename, verify_certificates = self.upload_queue.get()
+
+            # upload the file to our DSS session workspace
+            with open(filename, 'rb') as f:
+                resp = requests.post(upload_url, data=f, verify=verify_certificates)
+                resp.raise_for_status()
+
+            # Tell the queue that we are done
+            self.upload_queue.task_done()
 
 
 class DataSetDownloadQueue:
@@ -388,12 +623,12 @@ class DataSetDownloadQueue:
 
     def download_file(self):
         while True:
-            url, filename = self.download_queue.get()
+            url, filename, verify_certificates = self.download_queue.get()
             # create the necessary directory structure if they don't exist yet
             os.makedirs(os.path.dirname(filename), exist_ok=True)
 
             # request the file in streaming mode
-            r = requests.get(url, stream=True)
+            r = requests.get(url, stream=True, verify=verify_certificates)
             with open(filename, 'wb') as f:
                 for chunk in r.iter_content(chunk_size=1024): 
                     if chunk: # filter out keep-alive new chunks
@@ -402,74 +637,7 @@ class DataSetDownloadQueue:
             self.download_queue.task_done()
 
 
-class DataSetUpload:
-    
-    def __init__(self, openbis_obj, datastore, filename):
-        self.openbis = openbis_obj
-        self.datastore = datastore
-        self.filename = filename
-        self.sample = None
-        self.container = None
-        self.dataset = None
-        self.startByte = 0
-        self.endByte   = 0
-        self.container = {
-            "name": "Analysis name",
-            "description": "This is a description of my analysis"
-        }
-        self.dataSet = {
-            "permId" : "....."
-        }
-        self.result = {
-            "fileNames": self.result["fileNames"],
-        }
-        self.notebook = {
-            "fileNames": self.notebook["fileNames"],
-        }
-        self.sample
-
-    
-
-    def upload_file(self):
-        print(self.datastore)
-        upload_url = (
-            self.datastore["downloadUrl"] + '/session_workspace_file_upload'
-            + '?filename=' + 'testtest'
-            + '&id=1'
-            + '&startByte=0&endByte=0'
-            + '&sessionID=' + self.openbis.token
-        )
-
-        with open(self.filename, 'rb') as f:
-            resp = requests.post(upload_url, data=f)
-            resp.raise_for_status()
-
-    def start_registering(self):
-        request = {
-            "method": "createReportFromAggregationService",
-            "params": [
-                self.openbis.token,
-                self.datastore["code"],
-                DROPBOX_PLUGIN,
-                {
-                "method": "insertDataSet",
-                "sessionToken": self.openbis.token, 
-                "sample": self.sample,
-                "container" : self.container,
-                "dataSet": self.dataSet,
-                "result": self.result,
-                "notebook": self.notebook,
-                "parents": self.parents
-                }
-            ],
-            "id": "1",
-            "jsonrpc": "2.0"
-        }
-
-        resp = self.post_request(self.v3_as, request)
-
-
-class DataSet(Openbis):
+class DataSet():
     """objects which contain datasets"""
 
     def __init__(self, openbis_obj, permid, data):
@@ -480,30 +648,25 @@ class DataSet(Openbis):
         self.downloadUrl = self.data['dataStore']['downloadUrl']
 
 
-    @staticmethod
-    def ensure_folder_exists(folder): 
-        if not os.path.exists(folder):
-            os.makedirs(folder)
-
-
-    def download(self, wait_until_finished=False, workers=10):
+    def download(self, files=None, wait_until_finished=False, workers=10):
         """ download the actual files and put them in the following folder:
         __current_dir__/hostname/dataset_permid/
         """
+
+        if files == None:
+            files = self.file_list()
+        elif isinstance(files, str):
+            files = [files]
 
         base_url = self.downloadUrl + '/datastore_server/' + self.permid + '/'
 
         queue = DataSetDownloadQueue(workers=workers)
 
         # get file list and start download
-        for file in self.get_file_list(recursive=True):
-            if file['isDirectory']:
-                folder = os.path.join(self.openbis.hostname, self.permid)
-                DataSet.ensure_folder_exists(folder)
-            else:
-                download_url = base_url + file['pathInDataSet'] + '?sessionID=' + self.openbis.token 
-                filename = os.path.join(self.openbis.hostname, self.permid, file['pathInDataSet'])
-                queue.put([download_url, filename])
+        for filename in files:
+            download_url = base_url + filename + '?sessionID=' + self.openbis.token 
+            filename = os.path.join(self.openbis.hostname, self.permid, filename)
+            queue.put([download_url, filename, self.openbis.verify_certificates])
 
         # wait until all files have downloaded
         if wait_until_finished:
@@ -526,6 +689,17 @@ class DataSet(Openbis):
             if child is not None:
                 children.append(child)
         return children
+
+
+    def file_list(self):
+        files = []
+        for file in self.get_file_list(recursive=True):
+            if file['isDirectory']:
+                pass
+            else:
+                files.append(file['pathInDataSet'])
+        return files
+
         
 
     def get_file_list(self, recursive=True, start_folder="/"):
@@ -543,30 +717,51 @@ class DataSet(Openbis):
         resp = requests.post(self.downloadUrl + self.v1_ds, json.dumps(request))
 
         if resp.ok:
-            if 'error' in resp.json():
-                raise ValueError('an error has occured: ' + resp.json()['error'] )
-            elif 'result' in resp.json():
-                return resp.json()['result']
+            data = resp.json()
+            if 'error' in data:
+                raise ValueError('an error has occured: ' + data['error'] )
+            elif 'result' in data:
+                return data['result']
             else:
                 raise ValueError('request did not return either result nor error')
         else:
             raise ValueError('general error while performing post request')
 
 
-class Sample(Openbis):
-    """objects which contain samples"""
+class AttrDict(dict):
+    """ this class is just transforming a dictionary into an object
+    """
+    def __init__(self, *args, **kwargs):
+        super(AttrDict, self).__init__(*args, **kwargs)
+        self.__dict__ = self
 
-    def __init__(self, openbis_obj, ident, data):
+
+class Sample(dict):
+    """ managing openBIS samples
+    """
+
+    def __init__(self, openbis_obj, *args, **kwargs):
+        super(Sample, self).__init__(*args, **kwargs)
+        self.__dict__ = self
         self.openbis = openbis_obj
-        self.ident  =  ident
-        self.permid = data['permId']['permId']
-        self.ident  = data['identifier']['identifier']
-        self.data    = data
+        self.permid = self.permId['permId']
+        self.ident = self.identifier['identifier']
+
+
+    def delete(self, permid, reason):
+        self.openbis.delete_sample(permid, reason)
+
+
+    def get_datasets(self):
+        datasets = []
+        for item in self.dataSets:
+            datasets.append(self.openbis.get_dataset(item['permId']['permId']))
+        return datasets
 
 
     def get_parents(self):
         parents = []
-        for item in self.data['parents']:
+        for item in self.parents:
             parent = self.openbis.get_sample(item['permId']['permId'])
             if parent is not None:
                 parents.append(parent)
@@ -575,7 +770,7 @@ class Sample(Openbis):
 
     def get_children(self):
         children = []
-        for item in self.data['children']:
+        for item in self.children:
             child = self.openbis.get_sample(item['permId']['permId'])
             if child is not None:
                 children.append(child)
