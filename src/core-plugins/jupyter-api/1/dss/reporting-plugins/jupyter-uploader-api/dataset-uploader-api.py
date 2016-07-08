@@ -99,12 +99,13 @@ def process(transaction, parameters, tableBuilder):
     - contentProviderUnfiltered 
 
     '''
+    transaction.setUserId(userId)
+    print(dir())
     # check for mandatory parameters
-    for param in ('sample', 'container'):
+    for param in ['sample']:
         if parameters.get(param) is None:
             raise UserFailureException("mandatory parameter " + param + " is missing")
 
-#    print(str(transaction.getOpenBisServiceSessionToken()))
     # all print statements are written to openbis/servers/datastore_server/log/startup_log.txt
     print('userSessionToken: ' + userSessionToken)
 
@@ -120,27 +121,39 @@ def process(transaction, parameters, tableBuilder):
     everything_ok = True
 
     dataset_codes= []
-   # #everything_ok = register_files(transaction, sample, container, parameters)
-    if parameters.get("result").get("fileNames") is not None:
-        dataset_code = register_files(
-            transaction, 
-            "JUPYTER_RESULT",
-            sample, 
-            'container_permId', 
-            
-            parameters.get("result").get("fileNames")
-        )
-        dataset_codes.append(dataset_code)
+    if parameters.get("dataSets") is not None:
+        for ds in parameters.get("dataSets"):
+            dataset_code = register_dataset(
+                transaction, 
+                ds.get("dataSetType"),
+                sample, 
+                ds.get("properties"),
+                ds.get("sessionWorkspaceFolder"),
+                ds.get("fileNames")
+            )
+            dataset_codes.append(dataset_code)
 
-    container = registerContainer(transaction, sample, parameters, dataset_codes)
-   # if parameters.get("notebook").get("fileNames") is not None:
-   #     everything_ok = register_files(
-   #         transaction, 
-   #         "JUPYTER_NOTEBOOK",
-   #         sample, 
-   #         'container',
-   #         parameters.get("notebook").get("fileNames")
-   #     )
+#    if parameters.get("result").get("fileNames") is not None:
+#        dataset_code = register_dataset(
+#            transaction, 
+#            "JUPYTER_RESULT",
+#            sample, 
+#            'container_permId', 
+#            
+#            parameters.get("result").get("fileNames")
+#        )
+#        dataset_codes.append(dataset_code)
+
+#    if parameters.get("containers") is not None:
+#        for container in parameters.get("containers"):
+#            container_code = register_container(
+#                transaction,
+#                container.get("dataSetType"),
+#                sample,
+#                container.get("properties"),
+#                dataset_codes
+#            )
+
 
    # 
     # create the dataset
@@ -163,7 +176,33 @@ def process(transaction, parameters, tableBuilder):
         row.setCell("MESSAGE", "Dataset registration failed")
 
 
-def register_files(transaction, dataset_type, sample, container, file_names):
+def register_container(transaction, dataset_type, sample, properties, contained_dataset_codes ):
+
+    # make sure container dataset doesn't exist yet
+    container = get_dataset_for_name(transaction, properties.get("name"))
+
+    if container is None:
+        print("creating new JUPYTER_CONTAINER dataset...")
+        # Create new container (a dataset of type "JUPYTER_CONTAINER")
+        container = transaction.createNewDataSet(dataset_type)
+        container.setSample(sample)
+        container.setRegistrator(userId)
+
+    for key in properties.keySet():
+        propertyValue = unicode(properties[key])
+        print("container: setting "+key+"="+propertyValue)
+
+        if propertyValue == "":
+            propertyValue = None
+        container.setPropertyValue(key,propertyValue)
+    
+    container.setContainedDataSetCodes(contained_dataset_codes)
+    print("JUPYTER_CONTAINER permId: " + container.getDataSetCode())
+
+    return container
+
+
+def register_dataset(transaction, dataset_type, sample, properties, ws_folder, file_names):
     """ creates a new dataset of type JUPYTER_RESULT.
     the parent dataset is the JUPYTER_CONTAINER we just created
     - the result files are copied from the session workspace
@@ -171,12 +210,20 @@ def register_files(transaction, dataset_type, sample, container, file_names):
     - from there, the files are moved to the DSS: transaction.moveFile()
     - finally, the remaining files are deleted from the session workspace
     """
+    print("dataset_type = " +dataset_type)
+    
     print("creating " + dataset_type + " dataset...")
-    new_dataset = transaction.createNewDataSet(dataset_type)
-    new_dataset.setSample(sample)
-    # TODO: set the container just created as the parent dataset
-    #new_dataset.setParentDatasets([container.getDataSetCode()])
-    print("JUPYTER_RESULT permId: " + new_dataset.getDataSetCode())
+    dataset = transaction.createNewDataSet(dataset_type)
+    dataset.setSample(sample)
+
+    for key in properties.keySet():
+        propertyValue = unicode(properties[key]);
+        print("setting propertyValue: "+key + " = " + propertyValue)
+        if propertyValue == "":
+            propertyValue = None;
+        dataset.setPropertyValue(key,propertyValue);
+
+    print("JUPYTER_RESULT permId: " + dataset.getDataSetCode())
 
     
     # create temporary folder in incoming-dir ( openbis/servers/datastore_server/data/incoming )
@@ -184,7 +231,6 @@ def register_files(transaction, dataset_type, sample, container, file_names):
     print(threadProperties)
     dst_dir =  os.path.join( threadProperties[u'incoming-dir'], str(time.time()) )
     print("incoming folder: " + dst_dir)
-    #File(dst_dir).mkdirs()
 
     dss_service = ServiceProvider.getDssServiceRpcGeneric().getService()
 
@@ -208,8 +254,8 @@ def register_files(transaction, dataset_type, sample, container, file_names):
         IOUtils.closeQuietly(inputStream)
         IOUtils.closeQuietly(outputStream)
 
-    dst_dir2 = os.path.join(dst_dir, 'results')
-    transaction.moveFile(File(dst_dir2).getAbsolutePath(), new_dataset);
+    dst_dir2 = os.path.join(dst_dir, ws_folder)
+    transaction.moveFile(File(dst_dir2).getAbsolutePath(), dataset);
 #    temp_dir = prepareFilesForRegistration(transaction, file_names)
 
     # ...and delete all files from the session workspace
@@ -219,7 +265,7 @@ def register_files(transaction, dataset_type, sample, container, file_names):
     #    file_path = os.path.join(temp_dir, file_name)
     #    dss_service.deleteSessionWorkspaceFile(userSessionToken, file_name)
 
-    return new_dataset.getDataSetCode()
+    return dataset.getDataSetCode()
 
 
 def getThreadProperties(transaction):
@@ -232,26 +278,6 @@ def getThreadProperties(transaction):
       pass
   return threadPropertyDict
 
-def registerContainer(transaction, sample, parameters, contained_dataset_codes):
-
-    container_name = parameters.get("container").get("name")
-    container_description = parameters.get("container").get("description")
-
-    # make sure container dataset doesn't exist yet
-    container = get_dataset_for_name(transaction, container_name)
-    if container is None:
-        print("creating new JUPYTER_CONTAINER dataset...")
-        # Create new container (a dataset of type "JUPYTER_CONTAINER")
-        container = transaction.createNewDataSet("JUPYTER_CONTAINER")
-        container.setSample(sample)
-        container.setPropertyValue("NAME", container_name)
-        container.setPropertyValue("DESCRIPTION", container_description)
-    
-    
-    container.setContainedDataSetCodes(contained_dataset_codes)
-    print("JUPYTER_CONTAINER permId: " + container.getDataSetCode())
-
-    return container
 
 
 def registerNotebook(transaction, sample, container, parameters):
