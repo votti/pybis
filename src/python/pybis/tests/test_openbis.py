@@ -105,7 +105,6 @@ def test_dataset_upload(openbis_instance):
         f.write('test-data')
 
     ds = openbis_instance.new_dataset(
-        opk
         name        = "My Dataset",
         description = "description",
         type        = "UNKNOWN",
