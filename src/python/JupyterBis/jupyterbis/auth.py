@@ -39,6 +39,7 @@ class OpenbisAuthenticator(LocalAuthenticator):
         help="""Regex to use to validate usernames before sending to openBIS."""
     )
 
+
     @gen.coroutine
     def authenticate(self, handler, data):
         username = data['username']
@@ -54,18 +55,60 @@ class OpenbisAuthenticator(LocalAuthenticator):
             self.log.warn('Empty password')
             return None
 
+
         openbis = Openbis(self.server_url, verify_certificates=self.verify_certificates)
         try:
-            openbis.login(username, password, True)
+            # authenticate against openBIS and store the token (if possible)
+            openbis.login(username, password)
             user_to_openbis_dict[username] = openbis
+            self.refresh_token(username)
             return username
         except ValueError as err:
             self.log.warn(str(err))
             return None
 
+
+    def refresh_token(self, username):
+        if username in user_to_openbis_dict:
+            openbis = user_to_openbis_dict[username]
+        else:
+            return None
+
+        # user has no home directory yet:
+        # there is no reason to save the token
+        homedir = os.path.expanduser("~"+username)
+        if not os.path.exists(homedir):
+            return None
+
+        # remove existing token
+        parent_folder = os.path.join(homedir, '.pybis' )
+        token_path = openbis.gen_token_path(parent_folder)
+        try:
+            openbis.delete_token(token_path)
+        except:
+            pass
+
+        # save the new token
+        openbis.save_token(
+            token=openbis.token,
+            parent_folder=parent_folder
+        )
+
+        # change the ownership of the token to make sure it is not owned by root
+        change_ownership = "sudo chown %s:%s %s" % (username, username, parent_folder)
+        os.system(change_ownership)
+        change_ownership = "sudo chown %s:%s %s" % (username, username, openbis.token_path)
+        os.system(change_ownership)
+
+
     def pre_spawn_start(self, user, spawner):
-        """Write the token to a file"""
-        openbis = user_to_openbis_dict.get(user.name)
-        if openbis is not None:
-            token_folder = os.path.expanduser("~"+user.name)
-            openbis.save_token(token_folder)
+        """After successful login and creating user on the system,
+        write the token to a file"""
+
+        self.refresh_token(user.name)
+
+
+    def logout_url(self, base_url):
+        ''' Custon logout
+        '''
+        pass
