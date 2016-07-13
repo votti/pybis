@@ -27,73 +27,11 @@ from threading import Thread
 from queue import Queue
 DROPBOX_PLUGIN = "jupyter-uploader-api"
 
-class OpenbisCredentials:
-    """Credentials for communicating with openBIS."""
-
-    def __init__(self, token=None, uname_and_pass=None):
-        """A connection can be authenticated either by a token or a username and password combination
-        :param token: An authentication token for openBIS, can be None.
-        :param uname_and_pass: A tuple with username and password, in that order.
-        """
-        self.token = token
-        self.uname_and_pass = uname_and_pass
-
-    def has_token(self):
-        return self.token is not None
-
-    def has_username_and_password(self):
-        return self.uname_and_pass is not None
-
-    @property
-    def username(self):
-        return self.uname_and_pass[0]
-
-    @property
-    def password(self):
-        return self.uname_and_pass[1]
-
-
-class OpenbisCredentialStore:
-    """Cache login tokens for reuse."""
-
-    def __init__(self, store_folder):
-        """Cache credentials on the file system at store_path.
-        If the store_folder does not exist, it will be created with the umask inherited from the shell.
-        :param store_folder: The folder to write the credentials to. It will be created if necessary.
-        """
-        self.store_folder = store_folder
-
-    @property
-    def store_path(self):
-        return os.path.join(self.store_folder, "bis_token.txt")
-
-    def read(self):
-        """Read the cached credentials and return a credentials object.
-        :return: A credentials object with a token, or an empty credentials object if no store was found.
-        """
-        if not os.path.exists(self.store_path):
-            return OpenbisCredentials()
-        with open(self.store_path, "r") as f:
-            token = f.read()
-        return OpenbisCredentials(token)
-
-    def write(self, credentials):
-        """Write a credentials object to the store, overwriting any previous information.
-        :param credentials: The credentials with a token to write. If it has no token, nothing is written.
-        """
-        if not credentials.has_token():
-            return
-        token = credentials.token
-        if not os.path.exists(self.store_folder):
-            os.makedirs(self.store_folder)
-        with open(self.store_path, "w") as f:
-            f.write(token)
-
 
 class Openbis:
     """Interface for communicating with openBIS."""
 
-    def __init__(self, url, verify_certificates=True, use_cached_token=False ):
+    def __init__(self, url='https://localhost:8443', verify_certificates=True, token=None):
         """Initialize an interface to openBIS with information necessary to connect to the server.
         :param host:
         """
@@ -110,44 +48,69 @@ class Openbis:
         self.as_v1 = '/openbis/openbis/rmi-general-information-v1.json'
         self.reg_v1 = '/openbis/openbis/rmi-query-v1.json'
         self.verify_certificates = verify_certificates
-        self.token = None
-        if use_cached_token:
-            self.initialize_token()
+        self.token = token
+        self.token_path = None
+
+        # use an existing token, if available
+        if self.token is None:
+            self.token = self.get_cached_token()
 
 
-    def initialize_token(self):
-        """Read the token from the cache, and set the token ivar to it, if there, otherwise None."""
-        token_path = self.token_path()
+    def get_cached_token(self):
+        """Read the token from the cache, and set the token ivar to it, if there, otherwise None.
+        If the token is not valid anymore, delete it. 
+        """
+        token_path = self.gen_token_path()
         if not os.path.exists(token_path):
-            self.token = None
-            return
+            return None
         try:
             with open(token_path) as f:
-                self.token = f.read()
-                if not self.is_token_valid():
-                    self.token = None
+                token = f.read()
+                if not self.is_token_valid(token):
                     os.remove(token_path)
+                    return None
+                else:
+                    return token
         except FileNotFoundError:
-            self.token = None
-
-    def token(self):
-        if self.token is None:
-            raise ValueError('no valid session available')
+            return None
 
 
-    def token_path(self, parent_folder=None):
-        """Return the path to the token file."""
+    def gen_token_path(self, parent_folder=None):
+        """generates a path to the token file.
+        The token is usually saved in a file called
+        ~/.pybis/hostname.token
+        """
         if parent_folder is None:
-            parent_folder = os.path.expanduser("~")
-        path = os.path.join(parent_folder, '.pybis', self.hostname + '.token')
+            # save token under ~/.pybis folder
+            parent_folder = os.path.join(
+                os.path.expanduser("~"),
+                '.pybis'
+            )
+        path = os.path.join(parent_folder, self.hostname + '.token')
         return path
 
 
-    def save_token(self, parent_folder=None):
-        token_path = self.token_path(parent_folder)
+    def save_token(self, token=None, parent_folder=None):
+        if token is None:
+            token = self.token
+
+        token_path = None;
+        if parent_folder is None:
+            token_path = self.gen_token_path()
+        else:
+            token_path = self.gen_token_path(parent_folder)
+
+        # create the necessary directories, if they don't exist yet
         os.makedirs(os.path.dirname(token_path), exist_ok=True)
         with open(token_path, 'w') as f:
-            f.write(self.token)
+            f.write(token)
+            self.token_path = token_path
+
+
+    def delete_token(self, token_path=None):
+        if token_path is None:
+            token_path = self.token_path
+        os.remove(token_path)
 
 
     def post_request(self, resource, data):
@@ -176,10 +139,13 @@ class Openbis:
             "jsonrpc":"2.0"
         }
         resp = self.post_request(self.as_v3, logout_request)
+        self.delete_token()
+        self.token = None
+        self.token_path = None
         return resp
 
 
-    def login(self, username=None, password=None, store_credentials=False):
+    def login(self, username=None, password=None, save_token=False):
         """Log into openBIS.
         Expects a username and a password and updates the token (session-ID).
         The token is then used for every request.
@@ -198,6 +164,9 @@ class Openbis:
             raise ValueError("login to openBIS failed")
         else:
             self.token = result
+            if save_token:
+                self.save_token()
+            return self.token
 
 
     def get_datastores(self):
@@ -239,6 +208,10 @@ class Openbis:
             return datasets
         return DataFrame()
         
+
+    def is_session_active(self):
+        return self.is_token_valid(self.token)
+
 
     def is_token_valid(self, token=None):
         """Check if the connection to openBIS is valid.
@@ -795,13 +768,13 @@ class DataSet():
         if resp.ok:
             data = resp.json()
             if 'error' in data:
-                raise ValueError('an error has occured: ' + data['error'] )
+                raise ValueError('Error from openBIS: ' + data['error'] )
             elif 'result' in data:
                 return data['result']
             else:
-                raise ValueError('request did not return either result nor error')
+                raise ValueError('request to openBIS did not return either result nor error')
         else:
-            raise ValueError('general error while performing post request')
+            raise ValueError('internal error while performing post request')
 
 
 class AttrDict(dict):
