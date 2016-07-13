@@ -140,7 +140,7 @@ c.JupyterHub.authenticator_class = 'jupyterbis.auth.OpenbisAuthenticator'
 #
 # This will *only* include the logs of the Hub itself, not the logs of the proxy
 # or any single-user servers.
-# c.JupyterHub.extra_log_file = ''
+c.JupyterHub.extra_log_file = '/home/vagrant/jupyterhub.log'
 
 # Extra log handlers to set on JupyterHub logger
 # c.JupyterHub.extra_log_handlers = []
