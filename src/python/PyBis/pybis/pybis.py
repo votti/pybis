@@ -49,6 +49,8 @@ class Openbis:
         self.reg_v1 = '/openbis/openbis/rmi-query-v1.json'
         self.verify_certificates = verify_certificates
         self.token = token
+        self.datastores = []
+        self.spaces = []
         self.token_path = None
 
         # use an existing token, if available
@@ -170,15 +172,39 @@ class Openbis:
 
 
     def get_datastores(self):
-        datastores = []
-        request = {
-            "method": "listDataStores",
-            "params": [ self.token ],
-            "id": "1",
-            "jsonrpc": "2.0"
-        }
-        resp = self.post_request(self.as_v1, request)
-        return resp
+        if len(self.datastores) == 0: 
+            request = {
+                "method": "listDataStores",
+                "params": [ self.token ],
+                "id": "1",
+                "jsonrpc": "2.0"
+            }
+            resp = self.post_request(self.as_v1, request)
+            if resp is not None:
+                self.datastores = DataFrame(resp)[['code','downloadUrl', 'hostUrl']]
+                return self.datastores
+            else:
+                raise ValueError("No datastore found!")
+        else:
+            return self.datastores
+
+
+    def get_spaces(self):
+        if len(self.spaces) == 0:
+            request = {
+                "method": "searchSpaces",
+                "params": [ self.token, {}, {} ],
+                "id": "1",
+                "jsonrpc": "2.0"
+            }
+            resp = self.post_request(self.as_v3, request)
+            if resp is not None:
+                self.spaces = DataFrame(resp['objects'])[['code','description']]
+                return self.spaces
+            else:
+                raise ValueError("No spaces found!")
+        else:
+            return self.spaces
         
 
     def get_sample_types(self):
@@ -548,18 +574,20 @@ class Openbis:
 
     def upload_files(self, dss_code=None, files=None, folder='', wait_until_finished=False):
 
-        for dss in self.get_datastores():
-            if dss_code is None:
-                # just take first DSS of all available DSSes if none was given
-                self.datastore_url = dss['downloadUrl']
-                break
-            elif dss['code'] == dss_code:
-                self.datastore_url = dss['downloadUrl']
-                break
+        dss = self.datastores
 
-        if self.datastore_url is None:
-            raise ValueError("No such DSS code found: " + dss_code)
-        
+        # create a dictionary of the entry
+        datastore = {}
+        if dss_code is None:
+            # return first datastore if none given
+            datastore = dss.iloc[0].to_dict()
+        else:
+            ds = dss[dss['code'] == 'DSS1']
+            if len(ds) == 1:
+                datastore = ds.T[0].to_dict()
+            else:
+                raise ValueError("No such DSS code found: " + dss_code)
+
         if files is None:
             raise ValueError("Please provide a filename.")
 
@@ -824,3 +852,15 @@ class Sample(dict):
             if child is not None:
                 children.append(child)
         return children
+
+
+class Space(dict):
+    """ managing openBIS spaces
+    """
+
+    def __init__(self, openbis_obj, *args, **kwargs):
+        super(Space, self).__init__(*args, **kwargs)
+        self.__dict__ = self
+        self.openbis = openbis_obj
+        self.permid = self.permId['permId']
+        self.code = self.code
