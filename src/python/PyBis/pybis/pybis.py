@@ -189,8 +189,8 @@ class Openbis:
             return self.datastores
 
 
-    def get_spaces(self):
-        if len(self.spaces) == 0:
+    def get_spaces(self, refresh=None):
+        if len(self.spaces) == 0 or refresh is not None:
             request = {
                 "method": "searchSpaces",
                 "params": [ self.token, {}, {} ],
@@ -205,7 +205,31 @@ class Openbis:
                 raise ValueError("No spaces found!")
         else:
             return self.spaces
-        
+
+    def get_space(self, spaceId):
+        request = {
+        "method": "getSpaces",
+            "params": [ 
+            self.token,
+            [{ 
+                "@id": 0,
+                "permId": spaceId,
+                "@type": "as.dto.space.id.SpacePermId"
+            }],
+            {
+                "@id": 0,
+                "@type": "as.dto.space.fetchoptions.SpaceFetchOptions",
+                "registrator": None,
+                "samples": None,
+                "projects": None,
+                "sort": None
+            } 
+            ],
+                "id": "1",
+                "jsonrpc": "2.0"
+        } 
+        resp = self.post_request(self.as_v3, request)
+        return Space(self, resp[spaceId])
 
     def get_sample_types(self):
         request = {
@@ -424,6 +448,25 @@ class Openbis:
         }
         resp = self.post_request(self.as_v3, sample_delete_request)
         return
+
+
+    def new_space(self, name, description=None):
+        request = {
+            "method": "createSpaces",
+            "params": [
+                self.token,
+                [ {
+                    "@id": 0,
+                    "code": name,
+                    "description": description,
+                    "@type": "as.dto.space.create.SpaceCreation"
+                } ]
+            ],
+            "id": "1",
+            "jsonrpc": "2.0"
+        }
+        resp = self.post_request(self.as_v3, request)
+        return self.get_spaces(refresh=True)
 
 
     def new_dataset(self, sample=None, dss_code=None, files=[]):
@@ -862,5 +905,34 @@ class Space(dict):
         super(Space, self).__init__(*args, **kwargs)
         self.__dict__ = self
         self.openbis = openbis_obj
-        self.permid = self.permId['permId']
         self.code = self.code
+
+    def get_samples(self):
+        request = {
+            "method": "searchForSamples",
+            "params": [
+                self.openbis.token,
+                {
+                "matchClauses": [
+                    {
+                    "@type": "AttributeMatchClause",
+                    "fieldType": "ATTRIBUTE",
+                    "attribute": "SPACE",
+                    "desiredValue": self.code,
+                    }
+                ],
+                    "subCriterias": [],
+                    "operator": "MATCH_ALL_CLAUSES"
+                },
+                [
+                    "PROPERTIES",
+                    "PARENTS"
+                ]
+            ],
+            "id": "1",
+            "jsonrpc": "2.0"
+        }
+        resp = self.openbis.post_request(self.openbis.as_v1, request)
+        if resp is not None:
+            datasets = DataFrame(resp)[['spaceCode','permId', 'identifier','experimentIdentifierOrNull' ]]
+            return datasets
