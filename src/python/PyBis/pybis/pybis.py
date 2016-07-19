@@ -15,6 +15,7 @@ import requests
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
+import time
 import json
 import re
 from urllib.parse import urlparse
@@ -51,6 +52,7 @@ class Openbis:
         self.token = token
         self.datastores = []
         self.spaces = []
+        self.files_in_wsp = []
         self.token_path = None
 
         # use an existing token, if available
@@ -141,7 +143,6 @@ class Openbis:
             "jsonrpc":"2.0"
         }
         resp = self.post_request(self.as_v3, logout_request)
-        self.delete_token()
         self.token = None
         self.token_path = None
         return resp
@@ -469,53 +470,92 @@ class Openbis:
         return self.get_spaces(refresh=True)
 
 
-    def new_dataset(self, sample=None, dss_code=None, files=[]):
-        self.upload_files(
-            dss_code=dss_code, 
-            files=files,
-            folder='', 
-            wait_until_finished=True
-        )
+    def new_analysis(self, name, description=None, sample=None, dss_code=None, result_files=None,
+    notebook_files=None, parents=[]):
+
+        """ general method to upload datasets to the datastore server
+            and starting the aggregation service. Technically it involves
+            uploading files to the session workspace and activating the
+            dropbox aka dataset ingestion service
+        """
+
+        if dss_code is None:
+            dss_code = self.get_datastores()['code'][0]
+
+        # if a sample identifier was given, use it as a string.
+        # if a sample object was given, take its identifier
+        # TODO: handle permId's 
+        sample_identifier = None
+        if isinstance(sample, str):
+            sample_identifier = sample
+        else:
+            sample_identifier = sample.ident
+        
+        datastore_url = self.get_dss_url(dss_code)
+        folder = time.strftime('%Y-%m-%d_%H-%M-%S')
+
+        data_sets = []
+        if notebook_files is not None:
+            notebooks_folder = os.path.join(folder, 'notebook_files')
+            self.upload_files(
+                datastore_url = datastore_url,
+                files=notebook_files,
+                folder= notebooks_folder, 
+                wait_until_finished=True
+            )
+            data_sets.append({
+                "dataSetType" : "JUPYTER_NOTEBOOk",
+                "sessionWorkspaceFolder": notebooks_folder,
+                "fileNames" : notebook_files,
+                "properties" : {}
+            })
+        if result_files is not None:
+            results_folder = os.path.join(folder, 'result_files')
+            self.upload_files(
+                datastore_url = datastore_url,
+                files=result_files,
+                folder=results_folder,
+                wait_until_finished=True
+            )
+            data_sets.append({
+                "dataSetType" : "JUPYTER_RESULT",
+                "sessionWorkspaceFolder" : results_folder,
+                "fileNames" : result_files,
+                "properties" : {}
+            })
+
 
         request = {
           "method": "createReportFromAggregationService",
           "params": [
             self.token,
             dss_code,
-            "jupyter-uploader-api",
+            DROPBOX_PLUGIN,
             { 
             	"sample" : {
-                	"identifier" : sample.ident
+                	"identifier" : sample.identifier
                 },
-                #"containers" : [
-                #	{
-                #    	"dataSetType" : "JUPYTER_CONTAINER",
-                #    	"properties" : {
-                #			"NAME" : "another Analysis name",
-                #			"DESCRIPTION" : "This is a new description of my analysis"
-                #    	}
-                #    }
-                #],
-                "dataSets" : [
-                	{
-                    	"dataSetType" : "JUPYTER_RESULT",
-                        "sessionWorkspaceFolder" : "/",
-                        "fileNames" : files,
-                        "properties" : {
-                        }
+                "containers" : [ 
+                    {
+                    	"dataSetType" : "JUPYTER_CONTAINER",
+                    	"properties" : {
+                			"NAME" : "another Analysis name",
+                			"DESCRIPTION" : "This is a new description of my analysis"
+                    	}
                     }
                 ],
-                "parents" : [ "20130412142942295-197" ]
+                "dataSets" : data_sets,
+                "parents" : parents,
             }
           ],
           "id": "1",
           "jsonrpc": "2.0"
         }
 
+        return request
 
-    def new_sample(self, sample_name=None, space_name=None, sample_type=None, tags=[]):
-        if sample_type is None:
-            sample_type = "UNKNOWN"
+
+    def new_sample(self, sample_name, space_name, sample_type="UNKNOWN", tags=[]):
 
         if isinstance(tags, str):
             tags = [tags]
@@ -565,74 +605,28 @@ class Openbis:
             raise ValueError("error while trying to fetch sample from server: " + str(resp))
 
 
-    def new_analysis(self, name, description=None, sample=None, dss_code='DSS1', result_files=None, notebook_files=None, parents=[]):
-        """Register a new data set with openBIS.
-        :param path_to_notebook: The path to the Jupyter notebook that created this data set
-        :param owner_identifier: The identifier of the sample that owns this data set.
-        :param paths_to_files: A list of paths to files that should be in the data set.
-        :param parent_identifiers: A list of parents for the data set.
-        :return:
-        """
-        if sample is None:
-            raise ValueError("please provide a sample object or id")
 
-        if name is None:
-            raise ValueError("please provide a name for the analysis")
-
-        sample_ident = None
-        if isinstance(sample, str):
-            sample_ident = sample
-        else:
-            sample_ident = sample.ident
-
-        result_folder = 'results/'
-        notebook_folder = 'notebooks/'
-        parameters = {
-            "sample"   : { "identifier": sample_ident },
-            "container": { "name": name, "description": description },
-        }
+    def get_dss_url(self, dss_code=None):
         
-        # 1. upload the files to the session workspace
-        if result_files is not None:
-            wsp_files = self.upload_files(files=result_files, folder=result_folder)
-            parameters['result'] = { "fileNames" : wsp_files } 
-        if notebook_files is not None:
-            wsp_files = self.upload_files(files=notebook_files, folder=notebook_folder)
-            parameters['notebook'] = { "fileNames" : wsp_files }
-
-#        # 2. start registering files using the jupyter
-        register_request = {
-            "method": "createReportFromAggregationService",
-            "params": [
-                self.token,
-                dss_code,
-                DROPBOX_PLUGIN,
-                parameters,
-            ],
-            "id": "1",
-            "jsonrpc": "2.0"
-        }
-        resp = self.post_request(self.reg_v1, register_request)
-
-
-    def upload_files(self, dss_code=None, files=None, folder='', wait_until_finished=False):
-
-        dss = self.datastores
-
-        # create a dictionary of the entry
-        datastore = {}
+        dss = self.get_datastores()
         if dss_code is None:
-            # return first datastore if none given
-            datastore = dss.iloc[0].to_dict()
+            return dss['downloadUrl'][0]
         else:
-            ds = dss[dss['code'] == 'DSS1']
-            if len(ds) == 1:
-                datastore = ds.T[0].to_dict()
-            else:
-                raise ValueError("No such DSS code found: " + dss_code)
+            return dss[dss['code'] == dss_code]['downloadUrl'][0]
+        
+
+
+    def upload_files(self, datastore_url=None, files=None, folder=None, wait_until_finished=False):
+
+        if datastore_url is None:
+            datastore_url = self.get_dss_url()
 
         if files is None:
             raise ValueError("Please provide a filename.")
+
+        if folder is None:
+            # create a unique foldername
+            folder = time.strftime('%Y-%m-%d_%H-%M-%S')
 
         if isinstance(files, str):
             files = [files]
@@ -652,12 +646,11 @@ class Openbis:
                 real_files.append(os.path.join(filename))
 
         # compose the upload-URL and put URL and filename in the upload queue 
-        files_in_wsp = []
         for filename in real_files:
             file_in_wsp = os.path.join(folder, filename)
-            files_in_wsp.append(file_in_wsp)
+            self.files_in_wsp.append(file_in_wsp)
             upload_url = (
-                self.datastore_url + '/session_workspace_file_upload'
+                datastore_url + '/session_workspace_file_upload'
                 + '?filename=' + os.path.join(folder,filename)
                 + '&id=1'
                 + '&startByte=0&endByte=0'
@@ -670,7 +663,7 @@ class Openbis:
             queue.join()
 
         # return files with full path in session workspace
-        return files_in_wsp
+        return self.files_in_wsp
 
 
 class DataSetUploadQueue:
@@ -908,6 +901,7 @@ class Space(dict):
         self.code = self.code
 
     def get_samples(self):
+        fields = ['spaceCode','permId', 'identifier','experimentIdentifierOrNull']
         request = {
             "method": "searchForSamples",
             "params": [
@@ -933,6 +927,8 @@ class Space(dict):
             "jsonrpc": "2.0"
         }
         resp = self.openbis.post_request(self.openbis.as_v1, request)
-        if resp is not None:
-            datasets = DataFrame(resp)[['spaceCode','permId', 'identifier','experimentIdentifierOrNull' ]]
+        if resp is not None and len(resp) > 0:
+            datasets = DataFrame(resp)[fields]
             return datasets
+        else:
+            return None
