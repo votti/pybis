@@ -1,8 +1,8 @@
 import json
 import pytest
+import time
 from pybis import DataSet
 from pybis import Openbis
-from pybis import DataSetUpload
 
 def test_token(openbis_instance):
     assert openbis_instance.hostname is not None
@@ -13,15 +13,31 @@ def test_token(openbis_instance):
     new_instance.logout()
     assert new_instance.is_token_valid() is False
 
-    openbis_instance.save_token()
-    another_instance = Openbis(openbis_instance.url, use_cached_token=True)
-    assert another_instance.is_token_valid() is True
-
     invalid_connection = Openbis(openbis_instance.url)
     with pytest.raises(Exception):
         invalid_connection.login('invalid_username', 'invalid_password')
     assert invalid_connection.token is None
     assert invalid_connection.is_token_valid() is False
+
+
+def test_create_sample(openbis_instance):
+    testname = time.strftime('%a_%y%m%d_%H%M%S').upper() 
+    s = openbis_instance.new_sample(sample_name=testname, space_name='TEST', sample_type="UNKNOWN")
+    assert s is not None
+    assert s.ident == '/TEST/' + testname
+    s2 = openbis_instance.get_sample(s.permid)
+    assert s2 is not None
+
+def test_cached_token(openbis_instance):
+    openbis_instance.save_token()
+    assert openbis_instance.token_path is not None
+    assert openbis_instance.get_cached_token() is not None
+
+    another_instance = Openbis(openbis_instance.url)
+    assert another_instance.is_token_valid() is True
+
+    openbis_instance.delete_token()
+    assert openbis_instance.get_cached_token() is None
 
 
 def test_get_sample_by_id(openbis_instance):
@@ -98,36 +114,36 @@ def test_get_dataset_by_permid(openbis_instance):
 def test_dataset_upload(openbis_instance):
     datastores = openbis_instance.get_datastores()
     assert datastores is not None
-    assert isinstance(datastores, list)
+#    assert isinstance(datastores, list)
 
-    filename = 'testfile.txt'
-    with open(filename, 'w') as f:
-        f.write('test-data')
+    #filename = 'testfile.txt'
+    #with open(filename, 'w') as f:
+    #    f.write('test-data')
 
-    ds = openbis_instance.new_dataset(
-        name        = "My Dataset",
-        description = "description",
-        type        = "UNKNOWN",
-        sample      = sample,
-        files       = ["testfile.txt"],
-    )
+    #ds = openbis_instance.new_dataset(
+    #    name        = "My Dataset",
+    #    description = "description",
+    #    type        = "UNKNOWN",
+    #    sample      = sample,
+    #    files       = ["testfile.txt"],
+    #)
 
 
 
-    analysis = openbis_instance.new_analysis(
-        name = "My analysis",                       # * name of the container
-        description = "a description",              # 
-        sample = sample,                            #   my_dataset.sample is the default
+    #analysis = openbis_instance.new_analysis(
+    #    name = "My analysis",                       # * name of the container
+    #    description = "a description",              # 
+    #    sample = sample,                            #   my_dataset.sample is the default
 
-        # result files will be registered as JUPYTER_RESULT datatype
-        result_files = ["my_wonderful_result.txt"], #   path of my results
+    #    # result files will be registered as JUPYTER_RESULT datatype
+    #    result_files = ["my_wonderful_result.txt"], #   path of my results
 
-        # jupyter notebooks file will be registered as JUPYTER_NOTEBOOk datatype
-        notebook_files = ["notebook.ipynb"],        #   specify a specific notebook
-        #notebook_files = "~/notebooks/",           #   path of notebooks
-        parents = [parent_dataset],                 # other parents are optional, my_dataset is the default parent
-    )
+    #    # jupyter notebooks file will be registered as JUPYTER_NOTEBOOk datatype
+    #    notebook_files = ["notebook.ipynb"],        #   specify a specific notebook
+    #    #notebook_files = "~/notebooks/",           #   path of notebooks
+    #    parents = [parent_dataset],                 # other parents are optional, my_dataset is the default parent
+    #)
 
-    analysis.save     # start registering process
+    #analysis.save     # start registering process
 
 
