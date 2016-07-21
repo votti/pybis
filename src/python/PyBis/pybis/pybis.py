@@ -30,7 +30,9 @@ DROPBOX_PLUGIN = "jupyter-uploader-api"
 
 
 class Openbis:
-    """Interface for communicating with openBIS."""
+    """Interface for communicating with openBIS. A current version of openBIS is needed (at
+    least version 16.05). 
+    """
 
     def __init__(self, url='https://localhost:8443', verify_certificates=True, token=None):
         """Initialize an interface to openBIS with information necessary to connect to the server.
@@ -57,10 +59,10 @@ class Openbis:
 
         # use an existing token, if available
         if self.token is None:
-            self.token = self.get_cached_token()
+            self.token = self._get_cached_token()
 
 
-    def get_cached_token(self):
+    def _get_cached_token(self):
         """Read the token from the cache, and set the token ivar to it, if there, otherwise None.
         If the token is not valid anymore, delete it. 
         """
@@ -95,6 +97,8 @@ class Openbis:
 
 
     def save_token(self, token=None, parent_folder=None):
+        """ saves the session token to the disk, usually here: ~/.pybis/hostname.token
+        """
         if token is None:
             token = self.token
 
@@ -112,13 +116,22 @@ class Openbis:
 
 
     def delete_token(self, token_path=None):
+        """ deletes a stored session token.
+        """
         if token_path is None:
             token_path = self.token_path
         os.remove(token_path)
 
 
-    def post_request(self, resource, data):
-        resp = requests.post(self.url + resource, json.dumps(data), verify=self.verify_certificates)
+    def _post_request(self, resource, data):
+        """ internal method, used to handle all post requests and serializing / deserializing
+        data
+        """
+        resp = requests.post(
+            self.url + resource, 
+            json.dumps(data), 
+            verify=self.verify_certificates
+        )
 
         if resp.ok:
             data = resp.json()
@@ -133,6 +146,8 @@ class Openbis:
 
 
     def logout(self):
+        """ Log out of openBIS. After that, the session token is no longer valid.
+        """
         if self.token is None:
             return
 
@@ -142,7 +157,7 @@ class Openbis:
             "id":"1",
             "jsonrpc":"2.0"
         }
-        resp = self.post_request(self.as_v3, logout_request)
+        resp = self._post_request(self.as_v3, logout_request)
         self.token = None
         self.token_path = None
         return resp
@@ -162,7 +177,7 @@ class Openbis:
             "id":"1",
             "jsonrpc":"2.0"
         }
-        result = self.post_request(self.as_v3, login_request)
+        result = self._post_request(self.as_v3, login_request)
         if result is None:
             raise ValueError("login to openBIS failed")
         else:
@@ -173,6 +188,10 @@ class Openbis:
 
 
     def get_datastores(self):
+        """ Get a list of all available datastores. Usually there is only one, but in some cases
+        there might be more. If you upload a file, you need to specifiy the datastore you want
+        the file uploaded to.
+        """
         if len(self.datastores) == 0: 
             request = {
                 "method": "listDataStores",
@@ -180,7 +199,7 @@ class Openbis:
                 "id": "1",
                 "jsonrpc": "2.0"
             }
-            resp = self.post_request(self.as_v1, request)
+            resp = self._post_request(self.as_v1, request)
             if resp is not None:
                 self.datastores = DataFrame(resp)[['code','downloadUrl', 'hostUrl']]
                 return self.datastores
@@ -191,6 +210,9 @@ class Openbis:
 
 
     def get_spaces(self, refresh=None):
+        """ Get a list of all available spaces (DataFrame object). To create a sample or a
+        dataset, you need to specify in which space it should live.
+        """
         if len(self.spaces) == 0 or refresh is not None:
             request = {
                 "method": "searchSpaces",
@@ -198,7 +220,7 @@ class Openbis:
                 "id": "1",
                 "jsonrpc": "2.0"
             }
-            resp = self.post_request(self.as_v3, request)
+            resp = self._post_request(self.as_v3, request)
             if resp is not None:
                 self.spaces = DataFrame(resp['objects'])[['code','description']]
                 return self.spaces
@@ -208,6 +230,8 @@ class Openbis:
             return self.spaces
 
     def get_space(self, spaceId):
+        """ Returns a Space object for a given identifier (spaceId).
+        """
         request = {
         "method": "getSpaces",
             "params": [ 
@@ -229,17 +253,19 @@ class Openbis:
                 "id": "1",
                 "jsonrpc": "2.0"
         } 
-        resp = self.post_request(self.as_v3, request)
+        resp = self._post_request(self.as_v3, request)
         return Space(self, resp[spaceId])
 
     def get_sample_types(self):
+        """ Returns a list of all available sample types as a DataFrame object.
+        """
         request = {
             "method": "searchSampleTypes",
             "params": [ self.token, {}, {} ],
             "id": "1",
             "jsonrpc": "2.0"
         }
-        resp = self.post_request(self.as_v3, request)
+        resp = self._post_request(self.as_v3, request)
         if resp is not None:
             datasets = DataFrame(resp['objects'])[['code','description']]
             return datasets
@@ -247,13 +273,15 @@ class Openbis:
 
 
     def get_dataset_types(self):
+        """ Returns a list (DataFrame object) of all currently available dataset types
+        """
         request = {
             "method": "searchDataSetTypes",
             "params": [ self.token, {}, {} ],
             "id": "1",
             "jsonrpc": "2.0"
         }
-        resp = self.post_request(self.as_v3, request)
+        resp = self._post_request(self.as_v3, request)
         if resp is not None:
             datasets = DataFrame(resp['objects'])[['code','description','kind']]
             return datasets
@@ -261,6 +289,8 @@ class Openbis:
         
 
     def is_session_active(self):
+        """ checks whether a session is still active. Returns true or false.
+        """
         return self.is_token_valid(self.token)
 
 
@@ -282,7 +312,7 @@ class Openbis:
             "id": "1",
             "jsonrpc": "2.0"
         }
-        resp = self.post_request(self.as_v1, request)
+        resp = self._post_request(self.as_v1, request)
         return resp
 
 
@@ -341,7 +371,7 @@ class Openbis:
             "jsonrpc": "2.0"
         }
 
-        resp = self.post_request(self.as_v3, dataset_request)
+        resp = self._post_request(self.as_v3, dataset_request)
         if resp is not None:
             for permid in resp:
                 return DataSet(self, permid, resp[permid])
@@ -422,13 +452,15 @@ class Openbis:
             "id": sample_ident,
             "jsonrpc": "2.0"
         }
-        resp = self.post_request(self.as_v3, sample_request)
+        resp = self._post_request(self.as_v3, sample_request)
         if resp is not None:
             for sample_ident in resp:
                 return Sample(self, resp[sample_ident])
 
 
     def delete_sample(self, permid, reason):
+        """ Deletes a given sample.
+        """
         sample_delete_request = {
             "method": "deleteSamples",
             "params": [
@@ -447,11 +479,13 @@ class Openbis:
             "id": "1",
             "jsonrpc": "2.0"
         }
-        resp = self.post_request(self.as_v3, sample_delete_request)
+        resp = self._post_request(self.as_v3, sample_delete_request)
         return
 
 
     def new_space(self, name, description=None):
+        """ Creates a new space in the openBIS instance. Returns a list of all spaces
+        """
         request = {
             "method": "createSpaces",
             "params": [
@@ -466,17 +500,16 @@ class Openbis:
             "id": "1",
             "jsonrpc": "2.0"
         }
-        resp = self.post_request(self.as_v3, request)
+        resp = self._post_request(self.as_v3, request)
         return self.get_spaces(refresh=True)
 
 
     def new_analysis(self, name, description=None, sample=None, dss_code=None, result_files=None,
     notebook_files=None, parents=[]):
 
-        """ general method to upload datasets to the datastore server
-            and starting the aggregation service. Technically it involves
-            uploading files to the session workspace and activating the
-            dropbox aka dataset ingestion service
+        """ An analysis contains the Jupyter notebook file(s) and some result files.
+            Technically this method involves uploading files to the session workspace
+            and activating the dropbox aka dataset ingestion service "jupyter-uploader-api"
         """
 
         if dss_code is None:
@@ -491,9 +524,10 @@ class Openbis:
         else:
             sample_identifier = sample.ident
         
-        datastore_url = self.get_dss_url(dss_code)
+        datastore_url = self._get_dss_url(dss_code)
         folder = time.strftime('%Y-%m-%d_%H-%M-%S')
 
+        # upload the files
         data_sets = []
         if notebook_files is not None:
             notebooks_folder = os.path.join(folder, 'notebook_files')
@@ -524,7 +558,7 @@ class Openbis:
                 "properties" : {}
             })
 
-
+        # register the files in openBIS
         request = {
           "method": "createReportFromAggregationService",
           "params": [
@@ -539,8 +573,8 @@ class Openbis:
                     {
                     	"dataSetType" : "JUPYTER_CONTAINER",
                     	"properties" : {
-                			"NAME" : "another Analysis name",
-                			"DESCRIPTION" : "This is a new description of my analysis"
+                			"NAME" : name,
+                			"DESCRIPTION" : description
                     	}
                     }
                 ],
@@ -551,11 +585,14 @@ class Openbis:
           "id": "1",
           "jsonrpc": "2.0"
         }
-
-        return request
+        
+        resp = self._post_request(self.reg_v1, request)
+        return resp
 
 
     def new_sample(self, sample_name, space_name, sample_type="UNKNOWN", tags=[]):
+        """ Creates a new sample of a given sample type ('UNKNOWN' is the default).
+        """
 
         if isinstance(tags, str):
             tags = [tags]
@@ -598,7 +635,7 @@ class Openbis:
             "id":"1",
             "jsonrpc":"2.0"
         }
-        resp = self.post_request(self.as_v3, sample_create_request)
+        resp = self._post_request(self.as_v3, sample_create_request)
         if 'permId' in resp[0]:
             return self.get_sample(resp[0]['permId'])
         else:
@@ -606,8 +643,9 @@ class Openbis:
 
 
 
-    def get_dss_url(self, dss_code=None):
-        
+    def _get_dss_url(self, dss_code=None):
+        """ internal method to get the downloadURL of a datastore.
+        """
         dss = self.get_datastores()
         if dss_code is None:
             return dss['downloadUrl'][0]
@@ -619,7 +657,7 @@ class Openbis:
     def upload_files(self, datastore_url=None, files=None, folder=None, wait_until_finished=False):
 
         if datastore_url is None:
-            datastore_url = self.get_dss_url()
+            datastore_url = self._get_dss_url()
 
         if files is None:
             raise ValueError("Please provide a filename.")
@@ -747,7 +785,8 @@ class DataSetDownloadQueue:
 
 
 class DataSet():
-    """objects which contain datasets"""
+    """ DataSet are openBIS objects that contain the actual files.
+    """
 
     def __init__(self, openbis_obj, permid, data):
         self.openbis = openbis_obj
@@ -758,8 +797,11 @@ class DataSet():
 
 
     def download(self, files=None, wait_until_finished=False, workers=10):
-        """ download the actual files and put them in the following folder:
+        """ download the actual files and put them by default in the following folder:
         __current_dir__/hostname/dataset_permid/
+        If no files are specified, all files of a given dataset are downloaded.
+        Files are usually downloaded in parallel, using 10 workers by default. If you want to wait until
+        all the files are downloaded, set the wait_until_finished option to True.
         """
 
         if files == None:
@@ -783,6 +825,9 @@ class DataSet():
 
 
     def get_parents(self):
+        """ Returns an array of the parents of the given dataset. Returns an empty array if no
+        parents were found.
+        """
         parents = []
         for item in self.data['parents']:
             parent = self.openbis.get_dataset(item['code'])
@@ -790,8 +835,10 @@ class DataSet():
                 parents.append(parent)
         return parents
 
-
     def get_children(self):
+        """ Returns an array of the children of the given dataset. Returns an empty array if no
+        children were found.
+        """
         children = []
         for item in self.data['children']:
             child = self.openbis.get_dataset(item['code'])
@@ -812,6 +859,10 @@ class DataSet():
         
 
     def get_file_list(self, recursive=True, start_folder="/"):
+        """ Lists all files of a given dataset. You can specifiy a start_folder other than "/".
+        By default, all directories and their containing files are listed recursively. You can
+        turn off this option by setting recursive=False.
+        """
         request = {
             "method" : "listFilesForDataSet",
             "params" : [ 
@@ -841,16 +892,8 @@ class DataSet():
             raise ValueError('internal error while performing post request')
 
 
-class AttrDict(dict):
-    """ this class is just transforming a dictionary into an object
-    """
-    def __init__(self, *args, **kwargs):
-        super(AttrDict, self).__init__(*args, **kwargs)
-        self.__dict__ = self
-
-
 class Sample(dict):
-    """ managing openBIS samples
+    """ A Sample is one of the most commonly used objects in openBIS.
     """
 
     def __init__(self, openbis_obj, *args, **kwargs):
@@ -859,6 +902,7 @@ class Sample(dict):
         self.openbis = openbis_obj
         self.permid = self.permId['permId']
         self.ident = self.identifier['identifier']
+        self.datasets = None
 
 
     def delete(self, permid, reason):
@@ -901,6 +945,8 @@ class Space(dict):
         self.code = self.code
 
     def get_samples(self):
+        """ Lists all samples in a given space. A pandas DataFrame object is returned.
+        """
         fields = ['spaceCode','permId', 'identifier','experimentIdentifierOrNull']
         request = {
             "method": "searchForSamples",
@@ -926,7 +972,7 @@ class Space(dict):
             "id": "1",
             "jsonrpc": "2.0"
         }
-        resp = self.openbis.post_request(self.openbis.as_v1, request)
+        resp = self.openbis._post_request(self.openbis.as_v1, request)
         if resp is not None and len(resp) > 0:
             datasets = DataFrame(resp)[fields]
             return datasets
