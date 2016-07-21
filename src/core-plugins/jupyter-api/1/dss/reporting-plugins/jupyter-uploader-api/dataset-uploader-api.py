@@ -182,7 +182,8 @@ def register_container(transaction, dataset_type, sample, properties, contained_
         # Create new container (a dataset of type "JUPYTER_CONTAINER")
         container = transaction.createNewDataSet(dataset_type)
         container.setSample(sample)
-        container.setRegistrator(userId)
+        #container.setRegistrator(userId)
+        #print(dir(container))
     else:
         print("JUPYTER_CONTAINER already exists: " + container_name)
     
@@ -226,7 +227,8 @@ def register_dataset(transaction, dataset_type, sample, properties, ws_folder, f
     
     # create temporary folder in incoming-dir ( openbis/servers/datastore_server/data/incoming )
     threadProperties = getThreadProperties(transaction)
-    incoming_dir =  os.path.join( threadProperties[u'incoming-dir'], str(time.time()) )
+    #incoming_dir =  os.path.join( threadProperties[u'incoming-dir'], str(time.time()) )
+    incoming_dir =  os.path.join( threadProperties[u'incoming-dir'], dataset_type )
     print("incoming folder is: " + incoming_dir)
 
     dss_service = ServiceProvider.getDssServiceRpcGeneric().getService()
