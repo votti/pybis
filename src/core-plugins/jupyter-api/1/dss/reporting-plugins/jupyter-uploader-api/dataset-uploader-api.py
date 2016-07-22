@@ -36,20 +36,9 @@ import errno
 
 
 def getSampleByIdentifier(transaction, identifier):
-    space = identifier.split("/")[1]
-    code = identifier.split("/")[2]
 
-    criteria = SearchCriteria()
-    criteria.addMatchClause(MatchClause.createAttributeMatch(MatchClauseAttribute.SPACE, space))
-    criteria.addMatchClause(MatchClause.createAttributeMatch(MatchClauseAttribute.CODE, code))
-    criteria.setOperator(SearchOperator.MATCH_ALL_CLAUSES)
-
-    search_service = transaction.getSearchService()
-    found = list(search_service.searchForSamples(criteria))
-    if len(found) == 1:
-        return transaction.makeSampleMutable(found[0]);
-    else:
-        return None
+    sample = transaction.getSampleForUpdate(identifier)
+    return sample
 
 
 def get_dataset_for_name(transaction, dataset_name):
@@ -183,7 +172,6 @@ def register_container(transaction, dataset_type, sample, properties, contained_
         container = transaction.createNewDataSet(dataset_type)
         container.setSample(sample)
         #container.setRegistrator(userId)
-        #print(dir(container))
     else:
         print("JUPYTER_CONTAINER already exists: " + container_name)
     
