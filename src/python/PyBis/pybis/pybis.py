@@ -16,6 +16,7 @@ from requests.packages.urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 import time
+from datetime import datetime
 import json
 import re
 from urllib.parse import urlparse
@@ -213,6 +214,8 @@ class Openbis:
         """ Get a list of all available spaces (DataFrame object). To create a sample or a
         dataset, you need to specify in which space it should live.
         """
+        format_timestamp = lambda ts: datetime.fromtimestamp(round(ts/1000)).strftime('%Y-%m-%d %H:%M:%S')
+
         if len(self.spaces) == 0 or refresh is not None:
             request = {
                 "method": "searchSpaces",
@@ -222,7 +225,10 @@ class Openbis:
             }
             resp = self._post_request(self.as_v3, request)
             if resp is not None:
-                self.spaces = DataFrame(resp['objects'])[['code','description']]
+                spaces = DataFrame(resp['objects'])
+                spaces['registrationDate']= spaces['registrationDate'].map(format_timestamp)
+                spaces['modificationDate']= spaces['modificationDate'].map(format_timestamp)
+                self.spaces = spaces[['code', 'description', 'registrationDate', 'modificationDate']]
                 return self.spaces
             else:
                 raise ValueError("No spaces found!")
