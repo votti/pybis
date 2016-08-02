@@ -12,6 +12,9 @@ setup(name='pybis',
       packages=['pybis'],
       install_requires=[
           'pytest',
+          'requests',
+          'datetime',
+          'pandas',
           'click'
       ],
       entry_points='''
