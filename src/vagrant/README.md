@@ -33,7 +33,6 @@ When setting up a machine the first time, Vagrant reads a file called «Vagrantf
 4. all vagrant commands need to be executed inside the `/vagrant` directory, because the command always reads the `Vagrantfile`
 
 
-
 ## using an existing openBIS instance and start JupyterHub
 If you already have a running openBIS instance and want your JupyterHub users authenticate against that server:
 1. edit the file `src/vagrant/config/jupyterhub/jupyterhub_config.py`
@@ -69,14 +68,22 @@ ame` ``
 11. `exit` -- log off the virtual machine
 
 
-## start openBIS and JupyterHub, create a user
+## start openBIS and JupyterHub
 
-10. `vagrant ssh -c sync/initialize/start_services.sh` -- start openBIS and JupyterHub
-11. point your browser to `https://localhost:8443/openbis/` and check whether your server is up and running. Try logging in as an admin
-    user, for example.
-12. point your browser to the ELN-LIMS Lab notebook running at `https://localhost:8443/openbis/webapp/eln-lims/` and log in as admin
-13. go to Utilities -> User Manager, click on the Operations dropdown and choose "ceate User"
-14. enter a username (User ID) and a password to create a new user in openBIS (this may a while)
-15. check the AS and DSS logs if you encounter any problems: `/home/openbis/bin/bislog.sh` and `/home/openbis/bin/dsslog.sh`
+1. `vagrant ssh` -- to log into the virtual machine
+2. `sudo -u openbis /home/openbis/bin/allup.sh` -- start openBIS (if installed)
+3. `sudo sync/initialize/start_jupyterhub.sh` -- start JupyterHub
+1. `sudo sync/initialize/start_services.sh` -- start both openBIS and JupyterHub
+1. point your browser to `https://localhost:8443/openbis/` and check whether your server is up and running. Try logging in as an admin user, for example.
+1. check the AS and DSS logs if you encounter any problems
+   * `/home/openbis/bin/bislog.sh` -- openbis AS logfile
+   * `/home/openbis/bin/dsslog.sh` -- datastore server DSS logfile
+
+## create a new user in openBIS 
+
+1. point your browser to the ELN-LIMS Lab notebook running at `https://localhost:8443/openbis/webapp/eln-lims/` and log in as admin
+1. go to Utilities -> User Manager, click on the Operations dropdown and choose "ceate User"
+1. enter a username (User ID) and a password to create a new user in openBIS (this may a while)
+
 
 
