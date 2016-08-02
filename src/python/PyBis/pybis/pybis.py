@@ -29,6 +29,8 @@ from threading import Thread
 from queue import Queue
 DROPBOX_PLUGIN = "jupyter-uploader-api"
 
+def format_timestamp(ts):
+    return datetime.fromtimestamp(round(ts/1000)).strftime('%Y-%m-%d %H:%M:%S')
 
 class Openbis:
     """Interface for communicating with openBIS. A current version of openBIS is needed (at
@@ -54,7 +56,9 @@ class Openbis:
         self.verify_certificates = verify_certificates
         self.token = token
         self.datastores = []
-        self.spaces = []
+        self.spaces = None
+        self.dataset_types = None
+        self.sample_types = None
         self.files_in_wsp = []
         self.token_path = None
 
@@ -214,9 +218,8 @@ class Openbis:
         """ Get a list of all available spaces (DataFrame object). To create a sample or a
         dataset, you need to specify in which space it should live.
         """
-        format_timestamp = lambda ts: datetime.fromtimestamp(round(ts/1000)).strftime('%Y-%m-%d %H:%M:%S')
 
-        if len(self.spaces) == 0 or refresh is not None:
+        if self.spaces is None or refresh is not None:
             request = {
                 "method": "searchSpaces",
                 "params": [ self.token, {}, {} ],
@@ -262,36 +265,51 @@ class Openbis:
         resp = self._post_request(self.as_v3, request)
         return Space(self, resp[spaceId])
 
-    def get_sample_types(self):
+
+    def get_sample_types(self, refresh=None):
         """ Returns a list of all available sample types as a DataFrame object.
         """
-        request = {
-            "method": "searchSampleTypes",
-            "params": [ self.token, {}, {} ],
-            "id": "1",
-            "jsonrpc": "2.0"
-        }
-        resp = self._post_request(self.as_v3, request)
-        if resp is not None:
-            datasets = DataFrame(resp['objects'])[['code','description']]
-            return datasets
-        return DataFrame()
+
+        if self.sample_types is None or refresh is not None:
+            request = {
+                "method": "searchSampleTypes",
+                "params": [ self.token, {}, {} ],
+                "id": "1",
+                "jsonrpc": "2.0"
+            }
+            resp = self._post_request(self.as_v3, request)
+            if resp is not None:
+                sample_types = DataFrame(resp['objects'])
+                sample_types['modificationDate'] = sample_types['modificationDate'].map(format_timestamp)
+                self.sample_types = sample_types[['code', 'description', 'modificationDate']]
+                return self.sample_types
+            return DataFrame()
+        else:
+            return self.sample_types
 
 
-    def get_dataset_types(self):
+    def get_dataset_types(self, refresh=None):
         """ Returns a list (DataFrame object) of all currently available dataset types
         """
-        request = {
-            "method": "searchDataSetTypes",
-            "params": [ self.token, {}, {} ],
-            "id": "1",
-            "jsonrpc": "2.0"
-        }
-        resp = self._post_request(self.as_v3, request)
-        if resp is not None:
-            datasets = DataFrame(resp['objects'])[['code','description','kind']]
-            return datasets
-        return DataFrame()
+
+        if self.dataset_types is None or refresh is not None:
+            request = {
+                "method": "searchDataSetTypes",
+                "params": [ self.token, {}, {} ],
+                "id": "1",
+                "jsonrpc": "2.0"
+            }
+            resp = self._post_request(self.as_v3, request)
+            if resp is not None:
+                dataset_types = DataFrame(resp['objects'])
+                dataset_types['modificationDate']= dataset_types['modificationDate'].map(format_timestamp)
+                self.dataset_types = dataset_types[['code', 'description', 'modificationDate']]
+                return self.dataset_types
+            else:
+                raise ValueError("No dataset types found!")
+        else:
+            return self.dataset_types
+
         
 
     def is_session_active(self):
@@ -414,15 +432,7 @@ class Openbis:
                 raise ValueError(
                     '"' + sample_ident + '" is neither a Sample Identifier nor a PermID'
                 )
-
-        sample_request = {
-            "method": "getSamples",
-            "params": [
-                self.token,
-                [
-                    search_request, 
-                ],
-                {
+        fetch_options = {
                     "type": {
                         "@type": "as.dto.sample.fetchoptions.SampleTypeFetchOptions"
                     },
@@ -454,6 +464,15 @@ class Openbis:
                         "@type": "as.dto.tag.fetchoptions.TagFetchOptions",
                     },
                 }
+
+        sample_request = {
+            "method": "getSamples",
+            "params": [
+                self.token,
+                [
+                    search_request, 
+                ],
+                fetch_options
             ],
             "id": sample_ident,
             "jsonrpc": "2.0"
