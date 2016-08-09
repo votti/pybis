@@ -54,7 +54,7 @@ def extract_nested_identifier(ident):
     return ident['identifier']['identifier']
 
 def extract_person(person):
-    if isinstance(person, int):
+    if not isinstance(person, dict):
         return str(person)
     return "%s %s <%s>" % (person['firstName'], person['lastName'], person['email'])
 
@@ -354,6 +354,7 @@ class Openbis:
             "id": "1",
             "jsonrpc": "2.0"
         }
+
         resp = self._post_request(self.as_v3, request)
         if resp is not None:
             objects = resp['objects']
