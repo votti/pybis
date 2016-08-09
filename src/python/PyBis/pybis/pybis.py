@@ -318,7 +318,11 @@ class Openbis:
         if space:
             sub_criteria.append(self._criteria_for_code(space, 'space'))
         if project:
-            sub_criteria.append(self._criteria_for_code(project, 'project'))
+            exp_crit = self._criteria_for_code(experiment, 'experiment')
+            proj_crit = self._criteria_for_code(project, 'project')
+            exp_crit['criteria'] = []
+            exp_crit['criteria'].append(proj_crit)
+            sub_criteria.append(exp_crit)
         if experiment:
             sub_criteria.append(self._criteria_for_code(experiment, 'experiment'))
 
@@ -327,6 +331,7 @@ class Openbis:
             "@type": "as.dto.sample.search.SampleSearchCriteria",
             "operator": "AND"
         }
+
         options = {
             "properties": {
                 "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
@@ -345,6 +350,7 @@ class Openbis:
             },
             "@type": "as.dto.sample.fetchoptions.SampleFetchOptions"
         }
+
         request = {
             "method": "searchSamples",
             "params": [ self.token, 
