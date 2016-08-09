@@ -29,8 +29,34 @@ from threading import Thread
 from queue import Queue
 DROPBOX_PLUGIN = "jupyter-uploader-api"
 
+search_for_type = {
+    "space":      "as.dto.space.search.SpaceSearchCriteria",
+    "project":    "as.dto.project.search.ProjectSearchCriteria",
+    "experiment": "as.dto.experiment.search.ExperimentSearchCriteria",
+    "code":       "as.dto.common.search.CodeSearchCriteria",
+}
+
+
 def format_timestamp(ts):
     return datetime.fromtimestamp(round(ts/1000)).strftime('%Y-%m-%d %H:%M:%S')
+
+def extract_code(obj):
+    return obj['code']
+
+def extract_identifier(ident):
+    if not isinstance(ident, dict): 
+        return str(ident)
+    return ident['identifier']
+
+def extract_nested_identifier(ident):
+    if not isinstance(ident, dict): 
+        return str(ident)
+    return ident['identifier']['identifier']
+
+def extract_person(person):
+    if isinstance(person, int):
+        return str(person)
+    return "%s %s <%s>" % (person['firstName'], person['lastName'], person['email'])
 
 class Openbis:
     """Interface for communicating with openBIS. A current version of openBIS is needed (at
@@ -264,6 +290,234 @@ class Openbis:
         } 
         resp = self._post_request(self.as_v3, request)
         return Space(self, resp[spaceId])
+
+    def _criteria_for_code(self, code, object_type):
+        criteria = {
+          "criteria": [
+            {
+              "fieldName": "code",
+              "fieldType": "ATTRIBUTE",
+              "fieldValue": {
+                "value": code,
+                "@type": "as.dto.common.search.StringEqualToValue"
+              },
+              "@type": "as.dto.common.search.CodeSearchCriteria"
+            }
+          ],
+          "@type": search_for_type[object_type],
+          "operator": "AND"
+        }
+        return criteria
+ 
+
+
+    def get_samples(self, space=None, project=None, experiment=None):
+        """ Get a list of all samples for a given space/project/experiment (or any combination)
+        """
+        sub_criteria = []
+        if space:
+            sub_criteria.append(self._criteria_for_code(space, 'space'))
+        if project:
+            sub_criteria.append(self._criteria_for_code(project, 'project'))
+        if experiment:
+            sub_criteria.append(self._criteria_for_code(experiment, 'experiment'))
+
+        criteria = {
+            "criteria": sub_criteria,
+            "@type": "as.dto.sample.search.SampleSearchCriteria",
+            "operator": "AND"
+        }
+        options = {
+            "properties": {
+                "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
+            },
+            "tags": {
+                "@type": "as.dto.tag.fetchoptions.TagFetchOptions"
+            },
+            "registrator": {
+                "@type": "as.dto.person.fetchoptions.PersonFetchOptions"
+            },
+            "modifier": {
+                "@type": "as.dto.person.fetchoptions.PersonFetchOptions"
+            },
+            "experiment": {
+                "@type": "as.dto.experiment.fetchoptions.ExperimentFetchOptions"
+            },
+            "@type": "as.dto.sample.fetchoptions.SampleFetchOptions"
+        }
+        request = {
+            "method": "searchSamples",
+            "params": [ self.token, 
+                criteria,
+                options,
+            ],
+            "id": "1",
+            "jsonrpc": "2.0"
+        }
+        resp = self._post_request(self.as_v3, request)
+        if resp is not None:
+            objects = resp['objects']
+            cache = {}
+            for obj in objects:
+                for key in obj.keys():
+                    if key in ('registrator','modifier','project','experiment','space'):
+                        if isinstance(obj[key], dict):
+                            cache[ obj[key]['@id'] ] = obj[key]
+                        else:
+                            if obj[key] in cache:
+                                obj[key] = cache[ obj[key] ]
+
+            samples = DataFrame(objects)
+            if len(samples) is 0:
+                raise ValueError("No samples found!")
+
+            samples['registrationDate']= samples['registrationDate'].map(format_timestamp)
+            samples['modificationDate']= samples['modificationDate'].map(format_timestamp)
+            samples['registrator'] = samples['registrator'].map(extract_person)
+            samples['modifier'] = samples['modifier'].map(extract_person)
+            samples['identifier'] = samples['identifier'].map(extract_identifier)
+            samples['experiment'] = samples['experiment'].map(extract_nested_identifier)
+
+            return samples[['code', 'identifier', 'experiment', 'registrator', 'registrationDate', 'modifier', 'modificationDate']]
+        else:
+            raise ValueError("No samples found!")
+
+    def get_experiments(self, space=None, project=None):
+        """ Get a list of all experiment for a given space or project (or any combination)
+        """
+
+        sub_criteria = []
+        if space:
+            sub_criteria.append(self._criteria_for_code(space, 'space'))
+        if project:
+            sub_criteria.append(self._criteria_for_code(project, 'project'))
+
+        criteria = {
+            "criteria": sub_criteria,
+            "@type": "as.dto.experiment.search.ExperimentSearchCriteria",
+            "operator": "AND"
+        }
+        options = {
+            "properties": {
+                "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
+            },
+            "tags": {
+                "@type": "as.dto.tag.fetchoptions.TagFetchOptions"
+            },
+            "registrator": {
+                "@type": "as.dto.person.fetchoptions.PersonFetchOptions"
+            },
+            "modifier": {
+                "@type": "as.dto.person.fetchoptions.PersonFetchOptions"
+            },
+            "project": {
+                "@type": "as.dto.project.fetchoptions.ProjectFetchOptions"
+            },
+            "@type": "as.dto.experiment.fetchoptions.ExperimentFetchOptions"
+        }
+
+        request = {
+            "method": "searchExperiments",
+            "params": [ self.token, 
+                criteria,
+                options,
+            ],
+            "id": "1",
+            "jsonrpc": "2.0"
+        }
+        resp = self._post_request(self.as_v3, request)
+        if resp is not None:
+            objects = resp['objects']
+            cache = {}
+            for obj in objects:
+                for key in obj.keys():
+                    if key in ('registrator','modifier','project','experiement','space'):
+                        if isinstance(obj[key], dict):
+                            cache[ obj[key]['@id'] ] = obj[key]
+                        else:
+                            if obj[key] in cache:
+                                obj[key] = cache[ obj[key] ]
+
+            experiments = DataFrame(objects)
+            experiments['registrationDate']= experiments['registrationDate'].map(format_timestamp)
+            experiments['modificationDate']= experiments['modificationDate'].map(format_timestamp)
+            experiments['project']= experiments['project'].map(extract_code)
+            experiments['registrator'] = experiments['registrator'].map(extract_person)
+            experiments['modifier'] = experiments['modifier'].map(extract_person)
+            experiments['identifier'] = experiments['identifier'].map(extract_identifier)
+
+            return experiments[['code', 'identifier', 'project', 'registrator', 'registrationDate', 'modifier', 'modificationDate']]
+        else:
+            raise ValueError("No experiments found!")
+
+
+    def get_projects(self, space=None):
+        """ Get a list of all available projects (DataFrame object).
+        """
+
+        sub_criteria = []
+        if space:
+            sub_criteria.append(self._criteria_for_code(space, 'space'))
+
+        criteria = {
+            "criteria": sub_criteria,
+            "@type": "as.dto.project.search.ProjectSearchCriteria",
+            "operator": "AND"
+        }
+
+        options = {
+            "registrator": {
+                "@type": "as.dto.person.fetchoptions.PersonFetchOptions"
+            },
+            "modifier": {
+                "@type": "as.dto.person.fetchoptions.PersonFetchOptions"
+            },
+            "experiments": {
+                "@type": "as.dto.experiment.fetchoptions.ExperimentFetchOptions",
+            },
+            "space": {
+                "@type": "as.dto.space.fetchoptions.SpaceFetchOptions"
+            },
+            "@type": "as.dto.project.fetchoptions.ProjectFetchOptions"
+        }
+
+        request = {
+            "method": "searchProjects",
+            "params": [ self.token, 
+                criteria,
+                options,
+            ],
+            "id": "1",
+            "jsonrpc": "2.0"
+        }
+
+        resp = self._post_request(self.as_v3, request)
+        if resp is not None:
+            objects = resp['objects']
+            cache = {}
+            for obj in objects:
+                for key in obj.keys():
+                    if key in ('registrator','modifier', 'experiment','space'):
+                        if isinstance(obj[key], dict):
+                            cache[ obj[key]['@id'] ] = obj[key]
+                        else:
+                            if obj[key] in cache:
+                                obj[key] = cache[ obj[key] ]
+
+            projects = DataFrame(objects)
+            if len(projects) is 0:
+                raise ValueError("No projects found!")
+
+            projects['registrationDate']= projects['registrationDate'].map(format_timestamp)
+            projects['modificationDate']= projects['modificationDate'].map(format_timestamp)
+            projects['registrator'] = projects['registrator'].map(extract_person)
+            projects['modifier'] = projects['modifier'].map(extract_person)
+            projects['space'] = projects['space'].map(extract_code)
+
+            self.projects = projects[['code', 'space', 'registrator', 'registrationDate', 'modifier', 'modificationDate']]
+            return self.projects
+        else:
+            raise ValueError("No projects found!")
 
 
     def get_sample_types(self, refresh=None):
@@ -615,8 +869,9 @@ class Openbis:
         return resp
 
 
-    def new_sample(self, sample_name, space_name, sample_type="UNKNOWN", tags=[]):
-        """ Creates a new sample of a given sample type ('UNKNOWN' is the default).
+    def new_sample(self, sample_name, space_name, sample_type, tags=[]):
+        """ Creates a new sample of a given sample type. sample_name, sample_type and space are
+        mandatory arguments.
         """
 
         if isinstance(tags, str):
