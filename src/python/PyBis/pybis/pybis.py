@@ -34,6 +34,7 @@ search_for_type = {
     "project":    "as.dto.project.search.ProjectSearchCriteria",
     "experiment": "as.dto.experiment.search.ExperimentSearchCriteria",
     "code":       "as.dto.common.search.CodeSearchCriteria",
+    "sample_type":"as.dto.sample.search.SampleTypeSearchCriteria",
 }
 
 
@@ -48,6 +49,16 @@ def extract_identifier(ident):
         return str(ident)
     return ident['identifier']
 
+def extract_permid(permid):
+    if not isinstance(permid, dict):
+        return str(permid)
+    return permid['permId']
+
+def extract_nested_permid(permid):
+    if not isinstance(permid, dict):
+        return str(permid)
+    return permid['permId']['permId']
+
 def extract_nested_identifier(ident):
     if not isinstance(ident, dict): 
         return str(ident)
@@ -57,6 +68,24 @@ def extract_person(person):
     if not isinstance(person, dict):
         return str(person)
     return "%s %s <%s>" % (person['firstName'], person['lastName'], person['email'])
+
+def _criteria_for_code(code, object_type):
+    criteria = {
+        "criteria": [
+            {
+                "fieldName": "code",
+                "fieldType": "ATTRIBUTE",
+                "fieldValue": {
+                "value": code,
+                "@type": "as.dto.common.search.StringEqualToValue"
+                },
+                "@type": "as.dto.common.search.CodeSearchCriteria"
+            }
+        ],
+        "@type": search_for_type[object_type],
+        "operator": "AND"
+    }
+    return criteria
 
 class Openbis:
     """Interface for communicating with openBIS. A current version of openBIS is needed (at
@@ -267,6 +296,8 @@ class Openbis:
     def get_space(self, spaceId):
         """ Returns a Space object for a given identifier (spaceId).
         """
+
+        spaceId = str(spaceId).upper()
         request = {
         "method": "getSpaces",
             "params": [ 
@@ -289,42 +320,27 @@ class Openbis:
                 "jsonrpc": "2.0"
         } 
         resp = self._post_request(self.as_v3, request)
+        if len(resp) == 0:
+            raise ValueError("No such space: %s" % spaceId)
         return Space(self, resp[spaceId])
 
-    def _criteria_for_code(self, code, object_type):
-        criteria = {
-          "criteria": [
-            {
-              "fieldName": "code",
-              "fieldType": "ATTRIBUTE",
-              "fieldValue": {
-                "value": code,
-                "@type": "as.dto.common.search.StringEqualToValue"
-              },
-              "@type": "as.dto.common.search.CodeSearchCriteria"
-            }
-          ],
-          "@type": search_for_type[object_type],
-          "operator": "AND"
-        }
-        return criteria
- 
 
-
-    def get_samples(self, space=None, project=None, experiment=None):
+    def get_samples(self, space=None, project=None, experiment=None, sample_type=None):
         """ Get a list of all samples for a given space/project/experiment (or any combination)
         """
         sub_criteria = []
         if space:
-            sub_criteria.append(self._criteria_for_code(space, 'space'))
+            sub_criteria.append(_criteria_for_code(space, 'space'))
         if project:
-            exp_crit = self._criteria_for_code(experiment, 'experiment')
-            proj_crit = self._criteria_for_code(project, 'project')
+            exp_crit = _criteria_for_code(experiment, 'experiment')
+            proj_crit = _criteria_for_code(project, 'project')
             exp_crit['criteria'] = []
             exp_crit['criteria'].append(proj_crit)
             sub_criteria.append(exp_crit)
         if experiment:
-            sub_criteria.append(self._criteria_for_code(experiment, 'experiment'))
+            sub_criteria.append(_criteria_for_code(experiment, 'experiment'))
+        if sample_type:
+            sub_criteria.append(_criteria_for_code(sample_type, 'sample_type'))
 
         criteria = {
             "criteria": sub_criteria,
@@ -348,7 +364,10 @@ class Openbis:
             "experiment": {
                 "@type": "as.dto.experiment.fetchoptions.ExperimentFetchOptions"
             },
-            "@type": "as.dto.sample.fetchoptions.SampleFetchOptions"
+            "type": {
+                "@type": "as.dto.sample.fetchoptions.SampleTypeFetchOptions"
+            },
+            "@type": "as.dto.sample.fetchoptions.SampleFetchOptions",
         }
 
         request = {
@@ -367,7 +386,7 @@ class Openbis:
             cache = {}
             for obj in objects:
                 for key in obj.keys():
-                    if key in ('registrator','modifier','project','experiment','space'):
+                    if key in ('registrator','modifier','project','experiment','space','type'):
                         if isinstance(obj[key], dict):
                             cache[ obj[key]['@id'] ] = obj[key]
                         else:
@@ -384,8 +403,9 @@ class Openbis:
             samples['modifier'] = samples['modifier'].map(extract_person)
             samples['identifier'] = samples['identifier'].map(extract_identifier)
             samples['experiment'] = samples['experiment'].map(extract_nested_identifier)
+            samples['type'] = samples['type'].map(extract_nested_permid)
 
-            return samples[['code', 'identifier', 'experiment', 'registrator', 'registrationDate', 'modifier', 'modificationDate']]
+            return samples[['code', 'identifier', 'experiment', 'type', 'registrator', 'registrationDate', 'modifier', 'modificationDate']]
         else:
             raise ValueError("No samples found!")
 
@@ -395,9 +415,9 @@ class Openbis:
 
         sub_criteria = []
         if space:
-            sub_criteria.append(self._criteria_for_code(space, 'space'))
+            sub_criteria.append(_criteria_for_code(space, 'space'))
         if project:
-            sub_criteria.append(self._criteria_for_code(project, 'project'))
+            sub_criteria.append(_criteria_for_code(project, 'project'))
 
         criteria = {
             "criteria": sub_criteria,
@@ -464,7 +484,7 @@ class Openbis:
 
         sub_criteria = []
         if space:
-            sub_criteria.append(self._criteria_for_code(space, 'space'))
+            sub_criteria.append(_criteria_for_code(space, 'space'))
 
         criteria = {
             "criteria": sub_criteria,
@@ -1231,37 +1251,8 @@ class Space(dict):
         self.openbis = openbis_obj
         self.code = self.code
 
-    def get_samples(self):
+    def get_samples(self, *args, **kwargs):
         """ Lists all samples in a given space. A pandas DataFrame object is returned.
         """
-        fields = ['spaceCode','permId', 'identifier','experimentIdentifierOrNull']
-        request = {
-            "method": "searchForSamples",
-            "params": [
-                self.openbis.token,
-                {
-                "matchClauses": [
-                    {
-                    "@type": "AttributeMatchClause",
-                    "fieldType": "ATTRIBUTE",
-                    "attribute": "SPACE",
-                    "desiredValue": self.code,
-                    }
-                ],
-                    "subCriterias": [],
-                    "operator": "MATCH_ALL_CLAUSES"
-                },
-                [
-                    "PROPERTIES",
-                    "PARENTS"
-                ]
-            ],
-            "id": "1",
-            "jsonrpc": "2.0"
-        }
-        resp = self.openbis._post_request(self.openbis.as_v1, request)
-        if resp is not None and len(resp) > 0:
-            datasets = DataFrame(resp)[fields]
-            return datasets
-        else:
-            return None
+
+        return self.openbis.get_samples(space=self.code, *args, **kwargs)
