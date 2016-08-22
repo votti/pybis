@@ -4,10 +4,8 @@
 """
 pybis.py
 
-A class with methods for interacting with openBIS.
+Work with openBIS from Python.
 
-Created by Chandrasekhar Ramakrishnan on 2016-05-10.
-Copyright (c) 2016 ETH Zuerich. All rights reserved.
 """
 
 import os
@@ -35,6 +33,16 @@ search_for_type = {
     "experiment": "as.dto.experiment.search.ExperimentSearchCriteria",
     "code":       "as.dto.common.search.CodeSearchCriteria",
     "sample_type":"as.dto.sample.search.SampleTypeSearchCriteria",
+}
+
+fetch_option = {
+    "properties":  { "@type": "as.dto.property.fetchoptions.PropertyFetchOptions" },
+    "tags":        { "@type": "as.dto.tag.fetchoptions.TagFetchOptions" },
+    "project":     { "@type": "as.dto.project.fetchoptions.ProjectFetchOptions" },
+    "experiment":  { "@type": "as.dto.experiment.fetchoptions.ExperimentFetchOptions" },
+    "registrator": { "@type": "as.dto.person.fetchoptions.PersonFetchOptions" },
+    "modifier":    { "@type": "as.dto.person.fetchoptions.PersonFetchOptions" },
+    "physicalData":{ "@type": "as.dto.dataset.fetchoptions.PhysicalDataFetchOptions" },
 }
 
 
@@ -67,7 +75,19 @@ def extract_nested_identifier(ident):
 def extract_person(person):
     if not isinstance(person, dict):
         return str(person)
-    return "%s %s <%s>" % (person['firstName'], person['lastName'], person['email'])
+    if 'email' in person and person['email'] is not '':
+        return "%s %s <%s>" % (person['firstName'], person['lastName'], person['email'])
+    else:
+        return "%s %s" % (person['firstName'], person['lastName'])
+
+def extract_properties(prop):
+    if isinstance(prop, dict):
+        newline = "; "
+        props = []
+        for key in prop:
+            props.append("%s: %s" % (key, prop[key]))
+        return newline.join(props)
+
 
 def _criteria_for_code(code, object_type):
     criteria = {
@@ -88,12 +108,13 @@ def _criteria_for_code(code, object_type):
     return criteria
 
 class Openbis:
-    """Interface for communicating with openBIS. A current version of openBIS is needed (at
-    least version 16.05). 
+    """Interface for communicating with openBIS. A current version of openBIS is needed (at least version 16.05).
+
     """
 
     def __init__(self, url='https://localhost:8443', verify_certificates=True, token=None):
-        """Initialize an interface to openBIS with information necessary to connect to the server.
+        """Initialize a new connection to an openBIS server.
+
         :param host:
         """
 
@@ -116,6 +137,12 @@ class Openbis:
         self.sample_types = None
         self.files_in_wsp = []
         self.token_path = None
+
+        # some default settings for working with samples etc.
+        self.default_space = None
+        self.default_project = None
+        self.default_experiment = None
+        self.default_sample_type = None
 
         # use an existing token, if available
         if self.token is None:
@@ -157,7 +184,7 @@ class Openbis:
 
 
     def save_token(self, token=None, parent_folder=None):
-        """ saves the session token to the disk, usually here: ~/.pybis/hostname.token
+        """ saves the session token to the disk, usually here: ~/.pybis/hostname.token. When a new Openbis instance is created, it tries to read this saved token by default.
         """
         if token is None:
             token = self.token
@@ -187,6 +214,8 @@ class Openbis:
         """ internal method, used to handle all post requests and serializing / deserializing
         data
         """
+        #print(self.url+resource)
+        #print(json.dumps(data))
         resp = requests.post(
             self.url + resource, 
             json.dumps(data), 
@@ -206,7 +235,7 @@ class Openbis:
 
 
     def logout(self):
-        """ Log out of openBIS. After that, the session token is no longer valid.
+        """ Log out of openBIS. After logout, the session token is no longer valid.
         """
         if self.token is None:
             return
@@ -328,6 +357,16 @@ class Openbis:
     def get_samples(self, space=None, project=None, experiment=None, sample_type=None):
         """ Get a list of all samples for a given space/project/experiment (or any combination)
         """
+
+        if space is None:
+            space = self.default_space
+        if project is None:
+            project = self.default_project
+        if experiment is None:
+            experiment = self.default_experiment
+        if sample_type is None:
+            sample_type = self.default_sample_type
+
         sub_criteria = []
         if space:
             sub_criteria.append(_criteria_for_code(space, 'space'))
@@ -386,7 +425,7 @@ class Openbis:
             cache = {}
             for obj in objects:
                 for key in obj.keys():
-                    if key in ('registrator','modifier','project','experiment','space','type'):
+                    if key in ('modifier','registrator','project','experiment','space','type'):
                         if isinstance(obj[key], dict):
                             cache[ obj[key]['@id'] ] = obj[key]
                         else:
@@ -403,15 +442,20 @@ class Openbis:
             samples['modifier'] = samples['modifier'].map(extract_person)
             samples['identifier'] = samples['identifier'].map(extract_identifier)
             samples['experiment'] = samples['experiment'].map(extract_nested_identifier)
-            samples['type'] = samples['type'].map(extract_nested_permid)
+            samples['sample_type'] = samples['type'].map(extract_nested_permid)
 
-            return samples[['code', 'identifier', 'experiment', 'type', 'registrator', 'registrationDate', 'modifier', 'modificationDate']]
+            return samples[['code', 'identifier', 'experiment', 'sample_type', 'registrator', 'registrationDate', 'modifier', 'modificationDate']]
         else:
             raise ValueError("No samples found!")
 
     def get_experiments(self, space=None, project=None):
         """ Get a list of all experiment for a given space or project (or any combination)
         """
+
+        if space is None:
+            space = self.default_space
+        if project is None:
+            project = self.default_project
 
         sub_criteria = []
         if space:
@@ -458,7 +502,7 @@ class Openbis:
             cache = {}
             for obj in objects:
                 for key in obj.keys():
-                    if key in ('registrator','modifier','project','experiement','space'):
+                    if key in ('modifier','registrator','project','experiement','space'):
                         if isinstance(obj[key], dict):
                             cache[ obj[key]['@id'] ] = obj[key]
                         else:
@@ -481,6 +525,9 @@ class Openbis:
     def get_projects(self, space=None):
         """ Get a list of all available projects (DataFrame object).
         """
+
+        if space is None:
+            space = self.default_space
 
         sub_criteria = []
         if space:
@@ -648,6 +695,9 @@ class Openbis:
                 "parents": {
                     "@type": "as.dto.dataset.fetchoptions.DataSetFetchOptions"
                 },
+                "type": {
+                    "@type": "as.dto.dataset.fetchoptions.DataSetTypeFetchOptions"
+                },
                 "children": {
                   "@type": "as.dto.dataset.fetchoptions.DataSetFetchOptions"
                 },
@@ -714,37 +764,34 @@ class Openbis:
                     '"' + sample_ident + '" is neither a Sample Identifier nor a PermID'
                 )
         fetch_options = {
-                    "type": {
-                        "@type": "as.dto.sample.fetchoptions.SampleTypeFetchOptions"
-                    },
-                    "properties": {
-                        "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
-                    },
-                    "parents": {
-                        "@type": "as.dto.sample.fetchoptions.SampleFetchOptions",
-                        "properties": {
-                            "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
-                        }
-                    },
-                    "children": {
-                        "@type": "as.dto.sample.fetchoptions.SampleFetchOptions",
-                        "properties": {
-                            "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
-                        }
-                    },
-                    "dataSets": {
-                        "@type": "as.dto.dataset.fetchoptions.DataSetFetchOptions",
-                        "properties": {
-                            "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
-                        }
-                    },
-                    "registrator": {
-                        "@type": "as.dto.person.fetchoptions.PersonFetchOptions",
-                    },
-                    "tags": {
-                        "@type": "as.dto.tag.fetchoptions.TagFetchOptions",
-                    },
+            "type": {
+                "@type": "as.dto.sample.fetchoptions.SampleTypeFetchOptions"
+            },
+            "parents": {
+                "@type": "as.dto.sample.fetchoptions.SampleFetchOptions",
+                "properties": {
+                    "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
                 }
+            },
+            "children": {
+                "@type": "as.dto.sample.fetchoptions.SampleFetchOptions",
+                "properties": {
+                    "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
+                }
+            },
+            "dataSets": {
+                "@type": "as.dto.dataset.fetchoptions.DataSetFetchOptions",
+                "properties": {
+                    "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
+                },
+                "type": {
+                    "@type": "as.dto.dataset.fetchoptions.DataSetTypeFetchOptions"
+                },
+            },
+            "properties":  fetch_option['properties'],
+            "registrator": fetch_option['registrator'],
+            "tags":        fetch_option['tags'],
+        }
 
         sample_request = {
             "method": "getSamples",
@@ -758,8 +805,11 @@ class Openbis:
             "id": sample_ident,
             "jsonrpc": "2.0"
         }
+
         resp = self._post_request(self.as_v3, sample_request)
-        if resp is not None:
+        if resp is None or len(resp) == 0:
+            raise ValueError('no such sample found: '+sample_ident)
+        else:
             for sample_ident in resp:
                 return Sample(self, resp[sample_ident])
 
@@ -893,10 +943,14 @@ class Openbis:
         }
         
         resp = self._post_request(self.reg_v1, request)
-        return resp
+        try:
+            if resp['rows'][0][0]['value'] == 'OK':
+                return resp['rows'][0][1]['value']
+        except:
+            return resp
 
 
-    def new_sample(self, sample_name, space_name, sample_type, tags=[]):
+    def new_sample(self, sample_name, space_name, sample_type, tags=[], **kwargs):
         """ Creates a new sample of a given sample type. sample_name, sample_type and space are
         mandatory arguments.
         """
@@ -1101,6 +1155,12 @@ class DataSet():
         self.data    = data
         self.v1_ds = '/datastore_server/rmi-dss-api-v1.json'
         self.downloadUrl = self.data['dataStore']['downloadUrl']
+        if self.data['physicalData'] is None:
+            self.shareId = None
+            self.location = None
+        else:
+            self.shareId = self.data['physicalData']['shareId']
+            self.location = self.data['physicalData']['location']
 
 
     def download(self, files=None, wait_until_finished=False, workers=10):
@@ -1130,6 +1190,9 @@ class DataSet():
         if wait_until_finished:
             queue.join()
 
+        print("Files downloaded to: %s" % os.path.join(self.openbis.hostname, self.permid))
+
+
 
     def get_parents(self):
         """ Returns an array of the parents of the given dataset. Returns an empty array if no
@@ -1154,6 +1217,7 @@ class DataSet():
         return children
 
 
+
     def file_list(self):
         files = []
         for file in self.get_file_list(recursive=True):
@@ -1163,6 +1227,21 @@ class DataSet():
                 files.append(file['pathInDataSet'])
         return files
 
+
+    def get_files(self):
+        """ Returns a DataFrame of all files in this dataset
+        """
+
+        def createRelativePath(pathInDataSet):
+            if self.shareId is None:
+                return ''
+            else:
+                return os.path.join(self.shareId, self.location, pathInDataSet)
+            
+        files = self.get_file_list()
+        df = DataFrame(files)
+        df['relativePath'] = df['pathInDataSet'].map(createRelativePath)
+        return df[['isDirectory', 'pathInDataSet', 'fileSize', 'crc32Checksum']]
         
 
     def get_file_list(self, recursive=True, start_folder="/"):
@@ -1209,18 +1288,29 @@ class Sample(dict):
         self.openbis = openbis_obj
         self.permid = self.permId['permId']
         self.ident = self.identifier['identifier']
-        self.datasets = None
 
 
-    def delete(self, permid, reason):
-        self.openbis.delete_sample(permid, reason)
+    def delete(self, reason):
+        self.openbis.delete_sample(self.permid, reason)
 
 
     def get_datasets(self):
-        datasets = []
-        for item in self.dataSets:
-            datasets.append(self.openbis.get_dataset(item['permId']['permId']))
+        objects = self.dataSets
+        cache = {}
+        for obj in objects:
+            for key in obj.keys():
+                if key in ('type'):
+                    if isinstance(obj[key], dict):
+                        cache[ obj[key]['@id'] ] = obj[key]
+                    else:
+                        if obj[key] in cache:
+                            obj[key] = cache[ obj[key] ]
+        datasets = DataFrame(objects)
+        datasets['registrationDate'] = datasets['registrationDate'].map(format_timestamp)
+        datasets['properties'] = datasets['properties'].map(extract_properties)
+        datasets['type'] = datasets['type'].map(extract_code)
         return datasets
+        #return datasets[['code','properties', 'type', 'registrationDate']]
 
 
     def get_parents(self):
