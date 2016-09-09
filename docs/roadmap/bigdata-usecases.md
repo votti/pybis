@@ -95,9 +95,9 @@ This is described in the use case above.
 
 The contents of unmanaged data sets are not visible in general to openBIS users because they may reside on computers where the openBIS has no access. To make the contents visible, they need to be pushed to publicly accessible repositories. This gives users control of what data and code are public, and what are kept private. It also allows for partial publication of data, useful e.g., when dealing with privacy-sensitive content (say, in the context of medicine).
 
-## Management of data in Hadoop
+## Management of Data in Non-POSIX File Systems
 
-This needs to be looked into in greater detail. Git-annex can manage data that is referenced by a URL, something that HDFS can provide. Whether this satisfies all our needs is not yet known and needs to be briefly investigated.
+This needs to be looked into in greater detail. Git-annex can manage data that is referenced by a URL, something that, e.g., HDFS can provide. Whether this satisfies all our needs is not yet known and needs to be briefly investigated.
 
 # openBIS changes
 
