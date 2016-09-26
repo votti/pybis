@@ -18,6 +18,7 @@ from datetime import datetime
 import json
 import re
 from urllib.parse import urlparse
+import zlib
 
 import pandas as pd
 from pandas import DataFrame, Series
@@ -36,13 +37,27 @@ search_for_type = {
 }
 
 fetch_option = {
-    "properties":  { "@type": "as.dto.property.fetchoptions.PropertyFetchOptions" },
-    "tags":        { "@type": "as.dto.tag.fetchoptions.TagFetchOptions" },
-    "project":     { "@type": "as.dto.project.fetchoptions.ProjectFetchOptions" },
-    "experiment":  { "@type": "as.dto.experiment.fetchoptions.ExperimentFetchOptions" },
-    "registrator": { "@type": "as.dto.person.fetchoptions.PersonFetchOptions" },
-    "modifier":    { "@type": "as.dto.person.fetchoptions.PersonFetchOptions" },
-    "physicalData":{ "@type": "as.dto.dataset.fetchoptions.PhysicalDataFetchOptions" },
+    "space":        { "@type": "as.dto.space.fetchoptions.SpaceFetchOptions" },
+    "project":      { "@type": "as.dto.project.fetchoptions.ProjectFetchOptions" },
+    "experiments":  { "@type": "as.dto.experiment.fetchoptions.ExperimentFetchOptions" },
+    "sample":       { "@type": "as.dto.sample.fetchoptions.SampleFetchOptions" },
+    "dataset":      { "@type": "as.dto.dataset.fetchoptions.DataSetFetchOptions" },
+
+    "physicalData": { "@type": "as.dto.dataset.fetchoptions.PhysicalDataFetchOptions" },
+    "linkedData":   { "@type": "as.dto.dataset.fetchoptions.LinkedDataFetchOptions" },
+
+    "type":         { "@type": "as.dto.dataset.fetchoptions.DataSetTypeFetchOptions" },
+
+    "properties":   { "@type": "as.dto.property.fetchoptions.PropertyFetchOptions" },
+    "tags":         { "@type": "as.dto.tag.fetchoptions.TagFetchOptions" },
+
+    "registrator":  { "@type": "as.dto.person.fetchoptions.PersonFetchOptions" },
+    "modifier":     { "@type": "as.dto.person.fetchoptions.PersonFetchOptions" },
+    "leader":       { "@type": "as.dto.person.fetchoptions.PersonFetchOptions" },
+
+    "attachments":  { "@type": "as.dto.attachment.fetchoptions.AttachmentFetchOptions" },
+    "history":      { "@type": "as.dto.history.fetchoptions.HistoryEntryFetchOptions" },
+    "dataStore":    { "@type": "as.dto.datastore.fetchoptions.DataStoreFetchOptions" },
 }
 
 
@@ -88,6 +103,46 @@ def extract_properties(prop):
             props.append("%s: %s" % (key, prop[key]))
         return newline.join(props)
 
+def crc32(fileName):
+    prev = 0
+    for eachLine in open(fileName,"rb"):
+        prev = zlib.crc32(eachLine, prev)
+    return prev
+    # return as hex
+    #return "%X"%(prev & 0xFFFFFFFF)
+
+def _create_tagIds(tags=None):
+
+    if tags is None:
+        return None
+
+    tagIds = []
+    for tag in tags:
+        tagIds.append({ "code": tag, "@type": "as.dto.tag.id.TagCode" })
+
+    return tagIds
+
+
+def _create_typeId(type):
+    return {
+        "permId": type.upper(),
+        "@type": "as.dto.entitytype.id.EntityTypePermId"
+    }
+
+
+def _create_projectId(ident):
+    match = re.match('/', ident)
+    if match:
+        return {
+            "identifier": ident,
+            "@type": "as.dto.project.id.ProjectIdentifier"
+        }
+    else:
+        return { 
+            "permId": ident,
+            "@type": "as.dto.project.id.ProjectPermId"
+        }
+
 
 def _criteria_for_code(code, object_type):
     criteria = {
@@ -132,7 +187,7 @@ class Openbis:
         self.verify_certificates = verify_certificates
         self.token = token
         self.datastores = []
-        self.spaces = None
+
         self.dataset_types = None
         self.sample_types = None
         self.files_in_wsp = []
@@ -147,6 +202,15 @@ class Openbis:
         # use an existing token, if available
         if self.token is None:
             self.token = self._get_cached_token()
+
+    @property
+    def spaces(self):
+        return self.get_spaces()
+
+
+    @property
+    def projects(self):
+        return self.get_projects()
 
 
     def _get_cached_token(self):
@@ -298,29 +362,31 @@ class Openbis:
             return self.datastores
 
 
-    def get_spaces(self, refresh=None):
+    def get_spaces(self):
         """ Get a list of all available spaces (DataFrame object). To create a sample or a
         dataset, you need to specify in which space it should live.
         """
 
-        if self.spaces is None or refresh is not None:
-            request = {
-                "method": "searchSpaces",
-                "params": [ self.token, {}, {} ],
-                "id": "1",
-                "jsonrpc": "2.0"
-            }
-            resp = self._post_request(self.as_v3, request)
-            if resp is not None:
-                spaces = DataFrame(resp['objects'])
-                spaces['registrationDate']= spaces['registrationDate'].map(format_timestamp)
-                spaces['modificationDate']= spaces['modificationDate'].map(format_timestamp)
-                self.spaces = spaces[['code', 'description', 'registrationDate', 'modificationDate']]
-                return self.spaces
-            else:
-                raise ValueError("No spaces found!")
+        request = {
+            "method": "searchSpaces",
+            "params": [ self.token, {}, {} ],
+            "id": "1",
+            "jsonrpc": "2.0"
+        }
+        resp = self._post_request(self.as_v3, request)
+        if resp is not None:
+            spaces = DataFrame(resp['objects'])
+            spaces['registrationDate']= spaces['registrationDate'].map(format_timestamp)
+            spaces['modificationDate']= spaces['modificationDate'].map(format_timestamp)
+            sp = Things(
+                self,
+                'space',
+                spaces[['code', 'description', 'registrationDate', 'modificationDate']]
+            )
+            return sp
         else:
-            return self.spaces
+            raise ValueError("No spaces found!")
+
 
     def get_space(self, spaceId):
         """ Returns a Space object for a given identifier (spaceId).
@@ -448,7 +514,7 @@ class Openbis:
         else:
             raise ValueError("No samples found!")
 
-    def get_experiments(self, space=None, project=None):
+    def get_experiments(self, code=None, space=None, project=None):
         """ Get a list of all experiment for a given space or project (or any combination)
         """
 
@@ -462,6 +528,8 @@ class Openbis:
             sub_criteria.append(_criteria_for_code(space, 'space'))
         if project:
             sub_criteria.append(_criteria_for_code(project, 'project'))
+        if code:
+            sub_criteria.append(_criteria_for_code(code, 'code'))
 
         criteria = {
             "criteria": sub_criteria,
@@ -496,6 +564,7 @@ class Openbis:
             "id": "1",
             "jsonrpc": "2.0"
         }
+        return request
         resp = self._post_request(self.as_v3, request)
         if resp is not None:
             objects = resp['objects']
@@ -517,9 +586,72 @@ class Openbis:
             experiments['modifier'] = experiments['modifier'].map(extract_person)
             experiments['identifier'] = experiments['identifier'].map(extract_identifier)
 
-            return experiments[['code', 'identifier', 'project', 'registrator', 'registrationDate', 'modifier', 'modificationDate']]
+            exps = experiments[['code', 'identifier', 'project', 'registrator', 'registrationDate', 'modifier', 'modificationDate']]
+            return Things(self, 'experiment', exps, 'identifier')
         else:
             raise ValueError("No experiments found!")
+
+
+    def get_experiment(self, expId):
+        """ Returns an experiment object for a given identifier (expId).
+        """
+
+        fo = {
+            "@type": "as.dto.experiment.fetchoptions.ExperimentFetchOptions"
+        }
+        for option in ['tags', 'properties']:
+            fo[option] = fetch_option[option]
+
+
+        expId = str(expId).upper()
+        request = {
+        "method": "getExperiments",
+            "params": [ 
+            self.token,
+            [{ 
+                "identifier": expId,
+                "@type": "as.dto.experiment.id.ExperimentIdentifier"
+            }],
+            fo
+            ],
+                "id": "1",
+                "jsonrpc": "2.0"
+        } 
+        resp = self._post_request(self.as_v3, request)
+        if len(resp) == 0:
+            raise ValueError("No such experiment: %s" % expId)
+        return Experiment(self, resp[expId])
+
+
+    def new_experiment(self, project_ident, code, type, properties=None, attachments=None, tags=None):
+
+        tagIds = _create_tagIds(tags)
+        typeId = _create_typeId(type)
+        projectId = _create_projectId(project_ident)
+        if properties is None:
+            properties = {}
+        
+        request = {
+            "method": "createExperiments",
+            "params": [
+                self.token,
+                [
+                    {
+                        "properties": properties,
+                        "code": code,
+                        "typeId" : typeId,
+                        "projectId": projectId,
+                        "tagIds": tagIds,
+                        "attachments": attachments,
+                        "@type": "as.dto.experiment.create.ExperimentCreation",
+                    }
+                ]
+            ],
+            "id": "1",
+            "jsonrpc": "2.0"
+        }
+        resp = self._post_request(self.as_v3, request)
+        return resp[0]['permId']
 
 
     def get_projects(self, space=None):
@@ -586,59 +718,136 @@ class Openbis:
             projects['modificationDate']= projects['modificationDate'].map(format_timestamp)
             projects['registrator'] = projects['registrator'].map(extract_person)
             projects['modifier'] = projects['modifier'].map(extract_person)
+            projects['permid'] = projects['permId'].map(extract_permid)
+            projects['identifier'] = projects['identifier'].map(extract_identifier)
             projects['space'] = projects['space'].map(extract_code)
 
-            self.projects = projects[['code', 'space', 'registrator', 'registrationDate', 'modifier', 'modificationDate']]
-            return self.projects
+            pros=projects[['code', 'space', 'registrator', 'registrationDate', 
+                            'modifier', 'modificationDate', 'permid', 'identifier']]
+            return Things(self, 'project', pros, 'identifier')
         else:
             raise ValueError("No projects found!")
 
 
-    def get_sample_types(self, refresh=None):
-        """ Returns a list of all available sample types as a DataFrame object.
+    def _create_get_request(self, method_name, entity_type, permids, options):
+
+        if not isinstance(permids, list):
+            permids = [permids]
+
+        type = "as.dto.{}.id.{}".format(entity_type.lower(), entity_type.capitalize())
+        search_params = []
+        for permid in permids:
+            # decide if we got a permId or an identifier
+            match = re.match('/', permid)
+            if match:
+                search_params.append(
+                    { "identifier" : permid, "@type" : type + 'Identifier' }
+                )
+            else: 
+                search_params.append(
+                    { "permId" : permid, "@type": type + 'PermId' }
+                )
+
+        fo = {}
+        for option in options:
+            fo[option] = fetch_option[option]
+
+        request = {
+            "method": method_name,
+            "params": [
+                self.token,
+                search_params,
+                fo
+            ],
+            "id": "1",
+            "jsonrpc": "2.0"
+        }
+        return request
+
+
+    def get_project(self, projectId):
+        request = self._create_get_request('getProjects', 'project', projectId, ['attachments'])
+        resp = self._post_request(self.as_v3, request)
+        return resp
+
+
+    def new_project(self, space_code, code, description, leaderId):
+        request = {
+            "method": "createProjects",
+            "params": [
+                self.token,
+                [
+                    {
+                        "code": code,
+                        "spaceId": {
+                            "permId": space_code,
+                            "@type": "as.dto.space.id.SpacePermId"
+                        },
+                        "@type": "as.dto.project.create.ProjectCreation",
+                        "description": description,
+                        "leaderId": leaderId,
+                        "attachments": None
+                    }
+                ]
+            ],
+            "id": "1",
+            "jsonrpc": "2.0"
+        }
+        resp = self._post_request(self.as_v3, request)
+        return resp
+
+
+    def get_sample_types(self):
+        """ Returns a list of all available sample types
         """
-
-        if self.sample_types is None or refresh is not None:
-            request = {
-                "method": "searchSampleTypes",
-                "params": [ self.token, {}, {} ],
-                "id": "1",
-                "jsonrpc": "2.0"
-            }
-            resp = self._post_request(self.as_v3, request)
-            if resp is not None:
-                sample_types = DataFrame(resp['objects'])
-                sample_types['modificationDate'] = sample_types['modificationDate'].map(format_timestamp)
-                self.sample_types = sample_types[['code', 'description', 'modificationDate']]
-                return self.sample_types
-            return DataFrame()
-        else:
-            return self.sample_types
+        return self.get_types_of("searchSampleTypes", ["generatedCodePrefix"])
 
 
-    def get_dataset_types(self, refresh=None):
+    def get_experiment_types(self):
+        """ Returns a list of all available experiment types
+        """
+        return self.get_types_of("searchExperimentTypes")
+
+
+    def get_material_types(self):
+        """ Returns a list of all available material types
+        """
+        return self.get_types_of("searchMaterialTypes")
+
+
+    def get_dataset_types(self):
         """ Returns a list (DataFrame object) of all currently available dataset types
         """
+        return self.get_types_of("searchDataSetTypes")
 
-        if self.dataset_types is None or refresh is not None:
-            request = {
-                "method": "searchDataSetTypes",
-                "params": [ self.token, {}, {} ],
-                "id": "1",
-                "jsonrpc": "2.0"
-            }
-            resp = self._post_request(self.as_v3, request)
-            if resp is not None:
-                dataset_types = DataFrame(resp['objects'])
-                dataset_types['modificationDate']= dataset_types['modificationDate'].map(format_timestamp)
-                self.dataset_types = dataset_types[['code', 'description', 'modificationDate']]
-                return self.dataset_types
-            else:
-                raise ValueError("No dataset types found!")
+
+    def get_file_types(self):
+        """ Returns a list (DataFrame object) of all currently available file types
+        """
+        pass
+        #return self.get_types_of("searchFileTypes")
+
+
+    def get_types_of(self, method_name, additional_attributes=[]):
+        """ Returns a list of all available experiment types
+        """
+
+        attributes = ['code', 'description', 'modificationDate', *additional_attributes]
+
+        request = {
+            "method": method_name,
+            "params": [ self.token, {}, {} ],
+            "id": "1",
+            "jsonrpc": "2.0"
+        }
+        resp = self._post_request(self.as_v3, request)
+        if len(resp['objects']) >= 1:
+            types = DataFrame(resp['objects'])
+            types['modificationDate']= types['modificationDate'].map(format_timestamp)
+            return types[attributes]
         else:
-            return self.dataset_types
+            raise ValueError("Nothing found!")
 
-        
 
     def is_session_active(self):
         """ checks whether a session is still active. Returns true or false.
@@ -1141,7 +1350,7 @@ class DataSetDownloadQueue:
                 for chunk in r.iter_content(chunk_size=1024): 
                     if chunk: # filter out keep-alive new chunks
                         f.write(chunk)
-
+            
             self.download_queue.task_done()
 
 
@@ -1163,7 +1372,7 @@ class DataSet():
             self.location = self.data['physicalData']['location']
 
 
-    def download(self, files=None, wait_until_finished=False, workers=10):
+    def download(self, files=None, wait_until_finished=True, workers=10):
         """ download the actual files and put them by default in the following folder:
         __current_dir__/hostname/dataset_permid/
         If no files are specified, all files of a given dataset are downloaded.
@@ -1190,8 +1399,8 @@ class DataSet():
         if wait_until_finished:
             queue.join()
 
-        print("Files downloaded to: %s" % os.path.join(self.openbis.hostname, self.permid))
 
+        print("Files downloaded to: %s" % os.path.join(self.openbis.hostname, self.permid))
 
 
     def get_parents(self):
@@ -1205,6 +1414,7 @@ class DataSet():
                 parents.append(parent)
         return parents
 
+
     def get_children(self):
         """ Returns an array of the children of the given dataset. Returns an empty array if no
         children were found.
@@ -1215,7 +1425,6 @@ class DataSet():
             if child is not None:
                 children.append(child)
         return children
-
 
 
     def file_list(self):
@@ -1241,6 +1450,7 @@ class DataSet():
         files = self.get_file_list()
         df = DataFrame(files)
         df['relativePath'] = df['pathInDataSet'].map(createRelativePath)
+        df['crc32Checksum'] = df['crc32Checksum'].fillna('')
         return df[['isDirectory', 'pathInDataSet', 'fileSize', 'crc32Checksum']]
         
 
@@ -1330,7 +1540,7 @@ class Sample(dict):
                 children.append(child)
         return children
 
-
+        
 class Space(dict):
     """ managing openBIS spaces
     """
@@ -1339,10 +1549,68 @@ class Space(dict):
         super(Space, self).__init__(*args, **kwargs)
         self.__dict__ = self
         self.openbis = openbis_obj
-        self.code = self.code
+
 
     def get_samples(self, *args, **kwargs):
         """ Lists all samples in a given space. A pandas DataFrame object is returned.
         """
 
         return self.openbis.get_samples(space=self.code, *args, **kwargs)
+
+    @property
+    def projects(self):
+        return self.openbis.get_projects(space=self.code)
+    
+    def new_project(self, **kwargs):
+        return self.openbis.new_project(space=self.code, **kwargs)
+
+    @property
+    def experiments(self):
+        return self.openbis.get_experiments(space=self.code)
+
+
+class Things():
+    """An object that contains a DataFrame object about an entity  available in openBIS.
+       
+    """
+
+    def __init__(self, openbis_obj, what, df, identifier_name='code'):
+        self.openbis = openbis_obj
+        self.what = what
+        self.df = df
+        self.identifier_name = identifier_name
+
+    def _repr_html_(self):
+        return self.df._repr_html_()
+
+    def __getitem__(self, key):
+        if self.df is not None and len(self.df) > 0:
+            row = None
+            if isinstance(key, int):
+                # get thing by rowid
+                row = self.df.loc[[key]]
+            else:
+                # get thing by code
+                row = self.df[self.df[self.identifier_name]==key.upper()]
+
+            if row is not None:
+                # invoke the openbis.get_what() method
+                return getattr(self.openbis, 'get_'+self.what)(row[self.identifier_name].values[0])
+
+
+class Experiment(dict):
+    """ managing openBIS experiments
+    """
+
+    def __init__(self, openbis_obj, *args, **kwargs):
+        super(Experiment, self).__init__(*args, **kwargs)
+        self.__dict__ = self
+        self.openbis = openbis_obj
+
+    def __repr__(self):
+        data = {}
+        data["identifier"] = self['identifier']['identifier']
+        data["permId"] = self['permId']['permId']
+        data["properties"] = self['properties']
+        return repr(data)
+
