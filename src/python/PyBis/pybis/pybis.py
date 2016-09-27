@@ -39,7 +39,7 @@ search_for_type = {
 fetch_option = {
     "space":        { "@type": "as.dto.space.fetchoptions.SpaceFetchOptions" },
     "project":      { "@type": "as.dto.project.fetchoptions.ProjectFetchOptions" },
-    "experiments":  { "@type": "as.dto.experiment.fetchoptions.ExperimentFetchOptions" },
+    "experiment":   { "@type": "as.dto.experiment.fetchoptions.ExperimentFetchOptions" },
     "sample":       { "@type": "as.dto.sample.fetchoptions.SampleFetchOptions" },
     "dataset":      { "@type": "as.dto.dataset.fetchoptions.DataSetFetchOptions" },
 
@@ -144,15 +144,28 @@ def _create_projectId(ident):
         }
 
 
-def _criteria_for_code(code, object_type):
+def _criteria_for_code(code):
+    return {
+        "fieldName": "code",
+        "fieldType": "ATTRIBUTE",
+        "fieldValue": {
+            "value": code,
+            "@type": "as.dto.common.search.StringEqualToValue"
+        },
+        "@type": "as.dto.common.search.CodeSearchCriteria"
+    }
+    
+
+
+def _subcriteria_for_code(code, object_type):
     criteria = {
         "criteria": [
             {
                 "fieldName": "code",
                 "fieldType": "ATTRIBUTE",
                 "fieldValue": {
-                "value": code,
-                "@type": "as.dto.common.search.StringEqualToValue"
+                    "value": code,
+                    "@type": "as.dto.common.search.StringEqualToValue"
                 },
                 "@type": "as.dto.common.search.CodeSearchCriteria"
             }
@@ -278,8 +291,11 @@ class Openbis:
         """ internal method, used to handle all post requests and serializing / deserializing
         data
         """
-        #print(self.url+resource)
-        #print(json.dumps(data))
+        if "id" not in data:
+            data["id"] = "1"
+        if "jsonrpc" not in data:
+            data["jsonrpc"] = "2.0"
+
         resp = requests.post(
             self.url + resource, 
             json.dumps(data), 
@@ -307,8 +323,6 @@ class Openbis:
         logout_request = {
             "method":"logout",
             "params":[self.token],
-            "id":"1",
-            "jsonrpc":"2.0"
         }
         resp = self._post_request(self.as_v3, logout_request)
         self.token = None
@@ -327,8 +341,6 @@ class Openbis:
         login_request = {
             "method":"login",
             "params":[username, password],
-            "id":"1",
-            "jsonrpc":"2.0"
         }
         result = self._post_request(self.as_v3, login_request)
         if result is None:
@@ -349,8 +361,6 @@ class Openbis:
             request = {
                 "method": "listDataStores",
                 "params": [ self.token ],
-                "id": "1",
-                "jsonrpc": "2.0"
             }
             resp = self._post_request(self.as_v1, request)
             if resp is not None:
@@ -362,16 +372,19 @@ class Openbis:
             return self.datastores
 
 
-    def get_spaces(self):
+    def get_spaces(self, code=None):
         """ Get a list of all available spaces (DataFrame object). To create a sample or a
         dataset, you need to specify in which space it should live.
         """
-
+     
+        criteria = {}
+        options = {}
         request = {
             "method": "searchSpaces",
-            "params": [ self.token, {}, {} ],
-            "id": "1",
-            "jsonrpc": "2.0"
+            "params": [ self.token, 
+                criteria,
+                options,
+            ],
         }
         resp = self._post_request(self.as_v3, request)
         if resp is not None:
@@ -411,8 +424,6 @@ class Openbis:
                 "sort": None
             } 
             ],
-                "id": "1",
-                "jsonrpc": "2.0"
         } 
         resp = self._post_request(self.as_v3, request)
         if len(resp) == 0:
@@ -435,17 +446,17 @@ class Openbis:
 
         sub_criteria = []
         if space:
-            sub_criteria.append(_criteria_for_code(space, 'space'))
+            sub_criteria.append(_subcriteria_for_code(space, 'space'))
         if project:
-            exp_crit = _criteria_for_code(experiment, 'experiment')
-            proj_crit = _criteria_for_code(project, 'project')
+            exp_crit = _subcriteria_for_code(experiment, 'experiment')
+            proj_crit = _subcriteria_for_code(project, 'project')
             exp_crit['criteria'] = []
             exp_crit['criteria'].append(proj_crit)
             sub_criteria.append(exp_crit)
         if experiment:
-            sub_criteria.append(_criteria_for_code(experiment, 'experiment'))
+            sub_criteria.append(_subcriteria_for_code(experiment, 'experiment'))
         if sample_type:
-            sub_criteria.append(_criteria_for_code(sample_type, 'sample_type'))
+            sub_criteria.append(_subcriteria_for_code(sample_type, 'sample_type'))
 
         criteria = {
             "criteria": sub_criteria,
@@ -481,8 +492,6 @@ class Openbis:
                 criteria,
                 options,
             ],
-            "id": "1",
-            "jsonrpc": "2.0"
         }
 
         resp = self._post_request(self.as_v3, request)
@@ -525,11 +534,11 @@ class Openbis:
 
         sub_criteria = []
         if space:
-            sub_criteria.append(_criteria_for_code(space, 'space'))
+            sub_criteria.append(_subcriteria_for_code(space, 'space'))
         if project:
-            sub_criteria.append(_criteria_for_code(project, 'project'))
+            sub_criteria.append(_subcriteria_for_code(project, 'project'))
         if code:
-            sub_criteria.append(_criteria_for_code(code, 'code'))
+            sub_criteria.append(_criteria_for_code(code))
 
         criteria = {
             "criteria": sub_criteria,
@@ -537,22 +546,12 @@ class Openbis:
             "operator": "AND"
         }
         options = {
-            "properties": {
-                "@type": "as.dto.property.fetchoptions.PropertyFetchOptions"
-            },
-            "tags": {
-                "@type": "as.dto.tag.fetchoptions.TagFetchOptions"
-            },
-            "registrator": {
-                "@type": "as.dto.person.fetchoptions.PersonFetchOptions"
-            },
-            "modifier": {
-                "@type": "as.dto.person.fetchoptions.PersonFetchOptions"
-            },
-            "project": {
-                "@type": "as.dto.project.fetchoptions.ProjectFetchOptions"
-            },
-            "@type": "as.dto.experiment.fetchoptions.ExperimentFetchOptions"
+            "properties": { "@type": "as.dto.property.fetchoptions.PropertyFetchOptions" },
+            "tags": { "@type": "as.dto.tag.fetchoptions.TagFetchOptions" },
+            "registrator": { "@type": "as.dto.person.fetchoptions.PersonFetchOptions" },
+            "modifier": { "@type": "as.dto.person.fetchoptions.PersonFetchOptions" },
+            "project": { "@type": "as.dto.project.fetchoptions.ProjectFetchOptions" },
+            "@type": "as.dto.experiment.fetchoptions.ExperimentFetchOptions" 
         }
 
         request = {
@@ -561,10 +560,7 @@ class Openbis:
                 criteria,
                 options,
             ],
-            "id": "1",
-            "jsonrpc": "2.0"
         }
-        return request
         resp = self._post_request(self.as_v3, request)
         if resp is not None:
             objects = resp['objects']
@@ -614,8 +610,6 @@ class Openbis:
             }],
             fo
             ],
-                "id": "1",
-                "jsonrpc": "2.0"
         } 
         resp = self._post_request(self.as_v3, request)
         if len(resp) == 0:
@@ -647,8 +641,6 @@ class Openbis:
                     }
                 ]
             ],
-            "id": "1",
-            "jsonrpc": "2.0"
         }
         resp = self._post_request(self.as_v3, request)
         return resp[0]['permId']
@@ -663,7 +655,7 @@ class Openbis:
 
         sub_criteria = []
         if space:
-            sub_criteria.append(_criteria_for_code(space, 'space'))
+            sub_criteria.append(_subcriteria_for_code(space, 'space'))
 
         criteria = {
             "criteria": sub_criteria,
@@ -672,18 +664,10 @@ class Openbis:
         }
 
         options = {
-            "registrator": {
-                "@type": "as.dto.person.fetchoptions.PersonFetchOptions"
-            },
-            "modifier": {
-                "@type": "as.dto.person.fetchoptions.PersonFetchOptions"
-            },
-            "experiments": {
-                "@type": "as.dto.experiment.fetchoptions.ExperimentFetchOptions",
-            },
-            "space": {
-                "@type": "as.dto.space.fetchoptions.SpaceFetchOptions"
-            },
+            "registrator": { "@type": "as.dto.person.fetchoptions.PersonFetchOptions" },
+            "modifier": { "@type": "as.dto.person.fetchoptions.PersonFetchOptions" },
+            "experiments": { "@type": "as.dto.experiment.fetchoptions.ExperimentFetchOptions", },
+            "space": { "@type": "as.dto.space.fetchoptions.SpaceFetchOptions" },
             "@type": "as.dto.project.fetchoptions.ProjectFetchOptions"
         }
 
@@ -693,8 +677,6 @@ class Openbis:
                 criteria,
                 options,
             ],
-            "id": "1",
-            "jsonrpc": "2.0"
         }
 
         resp = self._post_request(self.as_v3, request)
@@ -759,8 +741,6 @@ class Openbis:
                 search_params,
                 fo
             ],
-            "id": "1",
-            "jsonrpc": "2.0"
         }
         return request
 
@@ -790,8 +770,6 @@ class Openbis:
                     }
                 ]
             ],
-            "id": "1",
-            "jsonrpc": "2.0"
         }
         resp = self._post_request(self.as_v3, request)
         return resp
@@ -837,8 +815,6 @@ class Openbis:
         request = {
             "method": method_name,
             "params": [ self.token, {}, {} ],
-            "id": "1",
-            "jsonrpc": "2.0"
         }
         resp = self._post_request(self.as_v3, request)
         if len(resp['objects']) >= 1:
@@ -870,8 +846,6 @@ class Openbis:
         request = {
             "method": "isSessionActive",
             "params": [ token ],
-            "id": "1",
-            "jsonrpc": "2.0"
         }
         resp = self._post_request(self.as_v1, request)
         return resp
@@ -922,6 +896,12 @@ class Openbis:
                 "dataStore": {
                     "@type": "as.dto.datastore.fetchoptions.DataStoreFetchOptions",
                 },
+                "experiment": {
+                    "@type": "as.dto.experiment.fetchoptions.ExperimentFetchOptions",
+                    "project": {
+                        "@type": "as.dto.project.fetchoptions.ProjectFetchOptions"
+                    },
+                },
                 "sample": {
                     "@type": "as.dto.sample.fetchoptions.SampleFetchOptions"
                 },
@@ -931,14 +911,13 @@ class Openbis:
                 "@type": "as.dto.dataset.fetchoptions.DataSetFetchOptions"
                 }
             ],
-            "id": permid,
-            "jsonrpc": "2.0"
         }
 
         resp = self._post_request(self.as_v3, dataset_request)
         if resp is not None:
             for permid in resp:
-                return DataSet(self, permid, resp[permid])
+                return DataSet(self, resp[permid])
+                #return DataSet(self, permid, resp[permid])
 
 
     def get_sample(self, sample_ident):
@@ -1011,8 +990,6 @@ class Openbis:
                 ],
                 fetch_options
             ],
-            "id": sample_ident,
-            "jsonrpc": "2.0"
         }
 
         resp = self._post_request(self.as_v3, sample_request)
@@ -1041,8 +1018,6 @@ class Openbis:
                     "@type": "as.dto.sample.delete.SampleDeletionOptions"
                 }
             ],
-            "id": "1",
-            "jsonrpc": "2.0"
         }
         resp = self._post_request(self.as_v3, sample_delete_request)
         return
@@ -1062,8 +1037,6 @@ class Openbis:
                     "@type": "as.dto.space.create.SpaceCreation"
                 } ]
             ],
-            "id": "1",
-            "jsonrpc": "2.0"
         }
         resp = self._post_request(self.as_v3, request)
         return self.get_spaces(refresh=True)
@@ -1147,8 +1120,6 @@ class Openbis:
                 "parents" : parents,
             }
           ],
-          "id": "1",
-          "jsonrpc": "2.0"
         }
         
         resp = self._post_request(self.reg_v1, request)
@@ -1202,8 +1173,6 @@ class Openbis:
                     "autoGeneratedCode":None
                 } ]
             ],
-            "id":"1",
-            "jsonrpc":"2.0"
         }
         resp = self._post_request(self.as_v3, sample_create_request)
         if 'permId' in resp[0]:
@@ -1304,10 +1273,14 @@ class DataSetUploadQueue:
             # get the next item in the queue
             upload_url, filename, verify_certificates = self.upload_queue.get()
 
+            filesize = os.path.getsize(filename)
+
             # upload the file to our DSS session workspace
             with open(filename, 'rb') as f:
                 resp = requests.post(upload_url, data=f, verify=verify_certificates)
                 resp.raise_for_status()
+                data = resp.json()
+                assert filesize == int(data['size'])
 
             # Tell the queue that we are done
             self.upload_queue.task_done()
@@ -1340,7 +1313,7 @@ class DataSetDownloadQueue:
 
     def download_file(self):
         while True:
-            url, filename, verify_certificates = self.download_queue.get()
+            url, filename, file_size, verify_certificates = self.download_queue.get()
             # create the necessary directory structure if they don't exist yet
             os.makedirs(os.path.dirname(filename), exist_ok=True)
 
@@ -1350,26 +1323,26 @@ class DataSetDownloadQueue:
                 for chunk in r.iter_content(chunk_size=1024): 
                     if chunk: # filter out keep-alive new chunks
                         f.write(chunk)
-            
+
+            assert os.path.getsize(filename) == int(file_size)
             self.download_queue.task_done()
 
 
-class DataSet():
+class DataSet(dict):
     """ DataSet are openBIS objects that contain the actual files.
     """
 
-    def __init__(self, openbis_obj, permid, data):
+    def __init__(self, openbis_obj, *args, **kwargs):
+        super(DataSet, self).__init__(*args, **kwargs)
+        self.__dict__ = self
+        self.permid = self["permId"]["permId"]
         self.openbis = openbis_obj
-        self.permid  = permid
-        self.data    = data
-        self.v1_ds = '/datastore_server/rmi-dss-api-v1.json'
-        self.downloadUrl = self.data['dataStore']['downloadUrl']
-        if self.data['physicalData'] is None:
+        if self['physicalData'] is None:
             self.shareId = None
             self.location = None
         else:
-            self.shareId = self.data['physicalData']['shareId']
-            self.location = self.data['physicalData']['location']
+            self.shareId = self['physicalData']['shareId']
+            self.location = self['physicalData']['location']
 
 
     def download(self, files=None, wait_until_finished=True, workers=10):
@@ -1385,15 +1358,17 @@ class DataSet():
         elif isinstance(files, str):
             files = [files]
 
-        base_url = self.downloadUrl + '/datastore_server/' + self.permid + '/'
+        base_url = self['dataStore']['downloadUrl'] + '/datastore_server/' + self.permid + '/'
 
         queue = DataSetDownloadQueue(workers=workers)
 
         # get file list and start download
         for filename in files:
+            file_info = self.get_file_list(start_folder=filename)
+            file_size = file_info[0]['fileSize']
             download_url = base_url + filename + '?sessionID=' + self.openbis.token 
             filename = os.path.join(self.openbis.hostname, self.permid, filename)
-            queue.put([download_url, filename, self.openbis.verify_certificates])
+            queue.put([download_url, filename, file_size, self.openbis.verify_certificates])
 
         # wait until all files have downloaded
         if wait_until_finished:
@@ -1408,7 +1383,7 @@ class DataSet():
         parents were found.
         """
         parents = []
-        for item in self.data['parents']:
+        for item in self['parents']:
             parent = self.openbis.get_dataset(item['code'])
             if parent is not None:
                 parents.append(parent)
@@ -1420,7 +1395,7 @@ class DataSet():
         children were found.
         """
         children = []
-        for item in self.data['children']:
+        for item in self['children']:
             child = self.openbis.get_dataset(item['code'])
             if child is not None:
                 children.append(child)
@@ -1437,7 +1412,7 @@ class DataSet():
         return files
 
 
-    def get_files(self):
+    def get_files(self, start_folder='/'):
         """ Returns a DataFrame of all files in this dataset
         """
 
@@ -1447,10 +1422,10 @@ class DataSet():
             else:
                 return os.path.join(self.shareId, self.location, pathInDataSet)
             
-        files = self.get_file_list()
+        files = self.get_file_list(start_folder=start_folder)
         df = DataFrame(files)
         df['relativePath'] = df['pathInDataSet'].map(createRelativePath)
-        df['crc32Checksum'] = df['crc32Checksum'].fillna('')
+        df['crc32Checksum'] = df['crc32Checksum'].fillna(0.0).astype(int)
         return df[['isDirectory', 'pathInDataSet', 'fileSize', 'crc32Checksum']]
         
 
@@ -1471,7 +1446,7 @@ class DataSet():
         }
 
         resp = requests.post(
-            self.downloadUrl + self.v1_ds, 
+            self["dataStore"]["downloadUrl"] + '/datastore_server/rmi-dss-api-v1.json',
             json.dumps(request), 
             verify=self.openbis.verify_certificates
         )
