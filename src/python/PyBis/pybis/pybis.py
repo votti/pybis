@@ -19,6 +19,7 @@ import json
 import re
 from urllib.parse import urlparse
 import zlib
+from collections import namedtuple
 
 
 import pandas as pd
@@ -43,7 +44,6 @@ fetch_option = {
     "experiment":   { "@type": "as.dto.experiment.fetchoptions.ExperimentFetchOptions" },
     "sample":       { "@type": "as.dto.sample.fetchoptions.SampleFetchOptions" },
     "dataset":      { "@type": "as.dto.dataset.fetchoptions.DataSetFetchOptions" },
-    "propertyAssignments" : { "@type" : "as.dto.property.fetchoptions.PropertyAssignmentFetchOptions" }, 
     "physicalData": { "@type": "as.dto.dataset.fetchoptions.PhysicalDataFetchOptions" },
     "linkedData":   { "@type": "as.dto.dataset.fetchoptions.LinkedDataFetchOptions" },
 
@@ -116,6 +116,15 @@ def parse_jackson(input_json):
 
     build_cache(input_json)
     deref_graph(input_json)
+
+def check_datatype(type_name, value):
+    if type_name == 'INTEGER':
+        return isinstance(value, int)
+    if type_name == 'BOOLEAN':
+        return isinstance(value, bool)
+    if type_name == 'VARCHAR':
+        return isinstance(value, str)
+    return True
 
 def search_request_for_identifier(identifier, entity_type):
     
@@ -219,13 +228,23 @@ def extract_attachments(attachments):
         att.append(attachment['fileName'])
     return att
 
+def signed_to_unsigned(sig_int):
+    """openBIS delivers crc32 checksums as signed integers.
+    If the number is negative, we just have to add 2**32
+    We display the hex number to match with the classic UI
+    """
+    if sig_int < 0:
+        sig_int += 2**32
+    return "%x"%(sig_int & 0xFFFFFFFF)
+
 def crc32(fileName):
+    """since Python3 the zlib module returns unsigned integers (2.7: signed int)
+    """
     prev = 0
     for eachLine in open(fileName,"rb"):
         prev = zlib.crc32(eachLine, prev)
-    return prev
     # return as hex
-    #return "%X"%(prev & 0xFFFFFFFF)
+    return "%x"%(prev & 0xFFFFFFFF)
 
 def _create_tagIds(tags=None):
     if tags is None:
@@ -286,7 +305,7 @@ def _create_projectId(ident):
 def _criteria_for_code(code):
     return {
         "fieldValue": {
-            "value": code,
+            "value": code.upper(),
             "@type": "as.dto.common.search.StringEqualToValue"
         },
         "@type": "as.dto.common.search.CodeSearchCriteria"
@@ -306,6 +325,30 @@ def _subcriteria_for_type(code, entity_type):
             }
           ]
     }
+
+def _gen_search_request(req):
+    sreq = {}
+    for key, val in req.items():
+        if key == "criteria":
+            items = []
+            for item in req['criteria']:
+                items.append(_gen_search_request(item))
+            sreq['criteria'] = items
+        elif key == "code":
+            sreq["criteria"] = [{
+                "@type": "as.dto.common.search.CodeSearchCriteria",
+                "fieldName": "code",
+                "fieldType": "ATTRIBUTE",
+                "fieldValue": {
+                    "value": val.upper(),
+                    "@type": "as.dto.common.search.StringEqualToValue"
+                }
+            }]
+        elif key == "operator":
+           sreq["operator"] = val.upper() 
+        else:
+            sreq["@type"] = "as.dto.{}.search.{}SearchCriteria".format(key, val)
+    return sreq
 
 def _subcriteria_for_tags(tags):
     if not isinstance(tags, list):
@@ -384,7 +427,7 @@ def _subcriteria_for_code(code, object_type):
                 "fieldName": "code",
                 "fieldType": "ATTRIBUTE",
                 "fieldValue": {
-                    "value": code,
+                    "value": code.upper(),
                     "@type": "as.dto.common.search.StringEqualToValue"
                 },
                 "@type": "as.dto.common.search.CodeSearchCriteria"
@@ -515,7 +558,6 @@ class Openbis:
             data["id"] = "1"
         if "jsonrpc" not in data:
             data["jsonrpc"] = "2.0"
-
         resp = requests.post(
             self.url + resource, 
             json.dumps(data), 
@@ -652,16 +694,15 @@ class Openbis:
 
 
     def get_samples(self, code=None, space=None, project=None, experiment=None, type=None,
-                    withParents=None, withChildren=None):
+                    withParents=None, withChildren=None, **properties):
         """ Get a list of all samples for a given space/project/experiment (or any combination)
         """
+
 
         if space is None:
             space = self.default_space
         if project is None:
             project = self.default_project
-        if experiment is None:
-            experiment = self.default_experiment
 
         sub_criteria = []
         if space:
@@ -674,6 +715,11 @@ class Openbis:
             sub_criteria.append(exp_crit)
         if experiment:
             sub_criteria.append(_subcriteria_for_code(experiment, 'experiment'))
+        if experiment is None:
+            experiment = self.default_experiment
+        if properties is not None:
+            for prop in properties:
+                sub_criteria.append(_subcriteria_for_properties(prop, properties[prop]))
         if type:
             sub_criteria.append(_subcriteria_for_code(type, 'sample_type'))
         if code:
@@ -932,6 +978,64 @@ class Openbis:
         self._post_request(self.as_v3, request)
 
 
+    def create_sample(self, space_ident, code, type, 
+        project_ident=None, experiment_ident=None, properties=None, attachments=None, tags=None):
+
+        tagIds = _create_tagIds(tags)
+        typeId = _create_typeId(type)
+        projectId = _create_projectId(project_ident)
+        experimentId = _create_experimentId(experiment_ident)
+
+        if properties is None:
+            properties = {}
+        
+        request = {
+            "method": "createSamples",
+            "params": [
+                self.token,
+                [
+                    {
+                        "properties": properties,
+                        "code": code,
+                        "typeId" : typeId,
+                        "projectId": projectId,
+                        "experimentId": experimentId,
+                        "tagIds": tagIds,
+                        "attachments": attachments,
+                        "@type": "as.dto.experiment.create.ExperimentCreation",
+                    }
+                ]
+            ],
+        }
+        resp = self._post_request(self.as_v3, request)
+        return self.get_sample(resp[0]['permId'])
+
+
+    def update_sample(self, sampleId, properties=None, tagIds=None, attachments=None):
+        params = {
+            "sampleId": {
+                "permId": sampleId,
+                "@type": "as.dto.sample.id.SamplePermId"
+            },
+            "@type": "as.dto.sample.update.SampleUpdate"
+        }
+        if properties is not None:
+            params["properties"]= properties
+        if tagIds is not None:
+            params["tagIds"] = tagIds
+        if attachments is not None:
+            params["attachments"] = attachments
+
+        request = {
+            "method": "updateSamples",
+            "params": [
+                self.token,
+                [ params ]
+            ]
+        }
+        self._post_request(self.as_v3, request)
+
+
     def delete_entity(self, what, permid, reason):
         """Deletes Spaces, Projects, Experiments, Samples and DataSets
         """
@@ -980,6 +1084,36 @@ class Openbis:
                 new_objs.append(*del_objs)
 
         return DataFrame(new_objs)
+
+
+    def new_project(self, space_code, code, description, leaderId):
+        request = {
+            "method": "createProjects",
+            "params": [
+                self.token,
+                [
+                    {
+                        "code": code,
+                        "spaceId": {
+                            "permId": space_code,
+                            "@type": "as.dto.space.id.SpacePermId"
+                        },
+                        "@type": "as.dto.project.create.ProjectCreation",
+                        "description": description,
+                        "leaderId": leaderId,
+                        "attachments": None
+                    }
+                ]
+            ],
+        }
+        resp = self._post_request(self.as_v3, request)
+        return resp
+
+
+    def get_project(self, projectId):
+        request = self._create_get_request('getProjects', 'project', projectId, ['attachments'])
+        resp = self._post_request(self.as_v3, request)
+        return resp
 
 
     def get_projects(self, space=None):
@@ -1073,63 +1207,45 @@ class Openbis:
         return request
 
 
-    def get_project(self, projectId):
-        request = self._create_get_request('getProjects', 'project', projectId, ['attachments'])
-        resp = self._post_request(self.as_v3, request)
-        return resp
-
-
-    def new_project(self, space_code, code, description, leaderId):
-        request = {
-            "method": "createProjects",
-            "params": [
-                self.token,
-                [
-                    {
-                        "code": code,
-                        "spaceId": {
-                            "permId": space_code,
-                            "@type": "as.dto.space.id.SpacePermId"
-                        },
-                        "@type": "as.dto.project.create.ProjectCreation",
-                        "description": description,
-                        "leaderId": leaderId,
-                        "attachments": None
-                    }
-                ]
-            ],
-        }
-        resp = self._post_request(self.as_v3, request)
-        return resp
-
-
-    def get_sample_types(self):
+    def get_sample_types(self, type=None):
         """ Returns a list of all available sample types
         """
-        return self._get_types_of("searchSampleTypes", "Sample", ["generatedCodePrefix"])
+        return self._get_types_of("searchSampleTypes", "Sample", type, ["generatedCodePrefix"])
+
+    def get_sample_type(self, type):
+        return self._get_types_of("searchSampleTypes", "Sample", type, ["generatedCodePrefix"])
 
 
-    def get_experiment_types(self):
+    def get_experiment_types(self, type=None):
         """ Returns a list of all available experiment types
         """
-        return self._get_types_of("searchExperimentTypes", "Experiment")
+        return self._get_types_of("searchExperimentTypes", "Experiment", type)
 
 
-    def get_material_types(self):
+    def get_material_types(self, type=None):
         """ Returns a list of all available material types
         """
-        return self._get_types_of("searchMaterialTypes", "Material")
+        return self._get_types_of("searchMaterialTypes", "Material", type)
 
 
-    def get_dataset_types(self):
+    def get_dataset_types(self, type=None):
         """ Returns a list (DataFrame object) of all currently available dataset types
         """
-        return self._get_types_of("searchDataSetTypes", "DataSet")
+        return self._get_types_of("searchDataSetTypes", "DataSet", type)
 
 
-    def get_vocabulary(self):
-        """ Returns a DataFrame of all vocabulary terms available
+    def get_vocabulary(self, property_name):
+        """ Returns information about vocabulary, including its controlled vocabulary
         """
+
+        search_request = _gen_search_request( { 
+            "vocabulary": "VocabularyTerm", 
+            "criteria" : [{
+                "vocabulary": "Vocabulary",
+                "code": property_name
+            }]
+        })
+    
 
         fetch_options = {
             "vocabulary" : { "@type" : "as.dto.vocabulary.fetchoptions.VocabularyFetchOptions" },
@@ -1138,13 +1254,15 @@ class Openbis:
 
         request = {
             "method": "searchVocabularyTerms",
-            "params": [ self.token, {}, fetch_options ]
+            "params": [ self.token, search_request, fetch_options ]
         }
         resp = self._post_request(self.as_v3, request)
-        objects = DataFrame(resp['objects'])
-        objects['registrationDate'] = objects['registrationDate'].map(format_timestamp)
-        objects['modificationDate'] = objects['modificationDate'].map(format_timestamp)
-        return objects[['code', 'description', 'registrationDate', 'modificationDate']]
+        parse_jackson(resp)
+        return resp['objects']
+        #objects = DataFrame(resp['objects'])
+        #objects['registrationDate'] = objects['registrationDate'].map(format_timestamp)
+        #objects['modificationDate'] = objects['modificationDate'].map(format_timestamp)
+        #return objects[['code', 'description', 'registrationDate', 'modificationDate']]
 
 
     def get_tags(self):
@@ -1155,19 +1273,45 @@ class Openbis:
             "params": [ self.token, {}, {} ]
         }
         resp = self._post_request(self.as_v3, request)
+        parse_jackson(resp)
         objects = DataFrame(resp['objects'])
         objects['registrationDate'] = objects['registrationDate'].map(format_timestamp)
         return objects[['code', 'registrationDate']]
 
 
-    def _get_types_of(self, method_name, entity_type, additional_attributes=[]):
+    def _get_types_of(self, method_name, entity_type, type=None, additional_attributes=[]):
         """ Returns a list of all available experiment types
         """
 
         attributes = ['code', 'description', *additional_attributes]
 
+        search_request = {}
         fetch_options = {}
-        if entity_type is not None:
+
+
+        if type is not None:
+            #search_request = {
+            #    "criteria": [
+            #        {
+            #            "@type": "as.dto.common.search.CodeSearchCriteria",
+            #            "fieldValue": {
+            #                "value": type,
+            #                "@type": "as.dto.common.search.StringEqualToValue"
+            #            },
+            #        "fieldType": "ATTRIBUTE",
+            #        "fieldName": "code"
+            #        }
+            #    ],
+            #    "@type": "as.dto.{}.search.{}TypeSearchCriteria".format(entity_type.lower(), entity_type),
+            #    "operator": "AND"
+            #}
+
+            search_request = _gen_search_request({
+                entity_type.lower(): entity_type.capitalize() + "Type",
+                "operator": "AND",
+                "code": type
+            })
+
             fetch_options = {
                 "propertyAssignments" : {
                     "@type" : "as.dto.property.fetchoptions.PropertyAssignmentFetchOptions"
@@ -1178,14 +1322,15 @@ class Openbis:
         
         request = {
             "method": method_name,
-            "params": [ self.token, {}, fetch_options ],
+            "params": [ self.token, search_request, fetch_options ],
         }
         resp = self._post_request(self.as_v3, request)
         parse_jackson(resp)
+
+        if type is not None and len(resp['objects']) == 1:
+            return PropertyAssignments(self, resp['objects'][0])
         if len(resp['objects']) >= 1:
             types = DataFrame(resp['objects'])
-            if 'propertyAssignments' in fetch_options:
-                types['propertyAssignments'] = types['propertyAssignments'].map(extract_property_assignments)
             return types[attributes]
         else:
             raise ValueError("Nothing found!")
@@ -1293,6 +1438,7 @@ class Openbis:
                     "@type": "as.dto.dataset.fetchoptions.DataSetTypeFetchOptions"
                 },
             },
+            "space":       fetch_option['space'],
             "properties":  fetch_option['properties'],
             "registrator": fetch_option['registrator'],
             "tags":        fetch_option['tags'],
@@ -1314,7 +1460,7 @@ class Openbis:
             raise ValueError('no such sample found: '+sample_ident)
         else:
             for sample_ident in resp:
-                return Sample(self, resp[sample_ident])
+                return Sample(self, self.get_sample_type(resp[sample_ident]["type"]["code"]), resp[sample_ident])
 
 
     def new_space(self, name, description=None):
@@ -1424,56 +1570,10 @@ class Openbis:
             return resp
 
 
-    def new_sample(self, sample_name, space_name, sample_type, tags=[], **kwargs):
-        """ Creates a new sample of a given sample type. sample_name, sample_type and space are
-        mandatory arguments.
+    def new_sample(self, type, **kwargs):
+        """ Creates a new sample of a given sample type.
         """
-
-        if isinstance(tags, str):
-            tags = [tags]
-        tag_ids = []
-        for tag in tags:
-            tag_dict = {
-                "code":tag,
-                "@type":"as.dto.tag.id.TagCode"
-            }
-            tag_ids.append(tag_dict)
-
-
-        sample_create_request = {
-            "method":"createSamples",
-            "params":[
-                self.token,
-                [ {
-                    "properties":{},
-                    "typeId":{
-                        "permId": sample_type,
-                        "@type":"as.dto.entitytype.id.EntityTypePermId"
-                    },
-                    "code": sample_name,
-                    "spaceId":{
-                        "permId": space_name,
-                        "@type":"as.dto.space.id.SpacePermId"
-                    },
-                    "tagIds":tag_ids,
-                    "@type":"as.dto.sample.create.SampleCreation",
-                    "experimentId":None,
-                    "containerId":None,
-                    "componentIds":None,
-                    "parentIds":None,
-                    "childIds":None,
-                    "attachments":None,
-                    "creationId":None,
-                    "autoGeneratedCode":None
-                } ]
-            ],
-        }
-        resp = self._post_request(self.as_v3, sample_create_request)
-        if 'permId' in resp[0]:
-            return self.get_sample(resp[0]['permId'])
-        else:
-            raise ValueError("error while trying to fetch sample from server: " + str(resp))
-
+        return Sample(self, self.get_sample_type(type), None, **kwargs)
 
 
     def _get_dss_url(self, dss_code=None):
@@ -1719,7 +1819,7 @@ class DataSet():
         files = self.get_file_list(start_folder=start_folder)
         df = DataFrame(files)
         df['relativePath'] = df['pathInDataSet'].map(createRelativePath)
-        df['crc32Checksum'] = df['crc32Checksum'].fillna(0.0).astype(int)
+        df['crc32Checksum'] = df['crc32Checksum'].fillna(0.0).astype(int).map(signed_to_unsigned)
         return df[['isDirectory', 'pathInDataSet', 'fileSize', 'crc32Checksum']]
         
 
@@ -1736,7 +1836,7 @@ class DataSet():
                 start_folder,
                 recursive,
             ],
-            "id":"1"
+           "id":"1"
         }
 
         resp = requests.post(
@@ -1757,24 +1857,230 @@ class DataSet():
             raise ValueError('internal error while performing post request')
 
 
+class Vocabulary():
+
+    def __init__(self, data):
+        self.data = data
+
+
+class PropertyHolder():
+
+    def __init__(self, openbis_obj, type):
+        self.__dict__['_openbis'] = openbis_obj
+        self.__dict__['_type'] = type
+        self.__dict__['_property_names'] = []
+        for prop in type.data['propertyAssignments']:
+            self._property_names.append(prop['propertyType']['code'].lower())
+
+    def _get_vocabulary(self, property_name):
+        return self._openbis.get_vocabulary(property_name)
+
+    def __len__(self):
+        return len(self._property_names)
+
+    #def __getattr__(self, name):
+    #    if name not in self._property_names:
+    #        raise KeyError("No such property: {}".format(name))
+    #    return self.__dict__[name]
+
+    def __setattr__(self, name, value):
+        if name not in self._property_names:
+            raise KeyError("No such property: {}".format(name)) 
+        property_type = self.__dict__['_type'].prop[name]['propertyType']
+        data_type = property_type['dataTypeCode']
+        if data_type == 'CONTROLLEDVOCABULARY':
+            print(property_type)
+            #if not check_vocabulary(
+            #    self.__dict__['_type'].prop[name]['propertyType']['code'], value
+            #):
+            #    raise ValueError
+        elif data_type in ('INTEGER', 'BOOLEAN', 'VARCHAR'):
+            if not check_datatype(data_type, value):
+                raise ValueError("Value must be of type {}".format(data_type))
+        self.__dict__[name] = value
+
+    def __dir__(self):
+        return self._property_names
+
+    def _repr_html_(self):
+        html = """
+            <table border="1" class="dataframe">
+            <thead>
+                <tr style="text-align: right;">
+                <th>property</th>
+                <th>value</th>
+                </tr>
+            </thead>
+            <tbody>
+        """
+
+        for prop in self._property_names:
+            value = ''
+            try:
+                value = getattr(self, prop)
+            except Exception:
+                pass
+
+            html += "<tr> <td>{}</td> <td>{}</td> </tr>".format(
+                prop,
+                value
+            )
+
+        html += """
+            </tbody>
+            </table>
+        """
+        return html
+
+
+class AttrHolder():
+
+    def __init__(self, openbis_obj):
+        self.openbis = openbis_obj
+
+    def __call__(self, name, data):
+        self.__dict__[name] = data
+
+    @property
+    def space(self):
+        return self.__dict__['space']['permId']
+    
+    @space.setter
+    def space(self, new_space):
+        space = self.openbis.get_space(new_space)
+        self.__dict__['space'] = space['permId']
+        self.__dict__['space']['is_modified'] = True
+
+    @property
+    def project(self):
+        return self.__dict__['project']['permId']
+    
+    @project.setter
+    def project(self, new_project):
+        project = self.openbis.get_project(new_project)
+        self.__dict__['project']['is_modified'] = True
+
+    @property
+    def experiment(self):
+        return self.__dict__['experiment']['permId']
+    
+    @experiment.setter
+    def experiment(self, new_experiment):
+        experiment = self.openbis.get_experiment(new_experiment)
+        self.__dict__['experiment'] = experiment['permId']
+        self.__dict__['experiment']['is_modified'] = True
+
+
+    def set_tags(self, tags):
+        tagIds = _tagIds_for_tags(tags, 'Set')
+        self.openbis.update_sample(self.permId, tagIds=tagIds)
+
+    def add_tags(self, tags):
+        tagIds = _tagIds_for_tags(tags, 'Add')
+        self.openbis.update_sample(self.permId, tagIds=tagIds)
+
+    def del_tags(self, tags):
+        tagIds = _tagIds_for_tags(tags, 'Remove')
+        self.openbis.update_sample(self.permId, tagIds=tagIds)
+    def __dir__(self):
+        return self._attr_names()
+
+    def _attr_names(self):
+        attr_names = ['space', 'code', 'project', 'experiment', 'tags']
+        return attr_names
+
+
+    def _repr_html_(self):
+        html = """
+            <table border="1" class="dataframe">
+            <thead>
+                <tr style="text-align: right;">
+                <th>attribute</th>
+                <th>value</th>
+                </tr>
+            </thead>
+            <tbody>
+        """
+            
+        for prop in self._attr_names():
+            value = ''
+            try:
+                value = getattr(self, prop)
+                if isinstance(value, list):
+                    names = []
+                    for item in value:
+                        names.append(value['permId'])
+                    value = names
+                elif isinstance(value, dict):
+                    value = value['permId'] or value
+            except Exception:
+                pass
+
+            html += "<tr> <td>{}</td> <td>{}</td> </tr>".format(
+                prop,
+                value
+            )
+
+        html += """
+            </tbody>
+            </table>
+        """
+        return html
+
+
 class Sample():
     """ A Sample is one of the most commonly used objects in openBIS.
     """
 
-    def __init__(self, openbis_obj, data):
+    def __init__(self, openbis_obj, type, data=None, **kwargs):
         self.openbis = openbis_obj
-        self.data = data
-        self.permid = data['permId']['permId']
-        self.permId = data['permId']['permId']
-        self.identifier  = data['identifier']['identifier']
-        self.ident  = data['identifier']['identifier']
-        self.properties = data['properties']
-        self.tags = extract_tags(data['tags'])
+        self.type = type
+        self.p = PropertyHolder(openbis_obj, type)
+        self.a = AttrHolder(openbis_obj, )
 
+        if data is not None:
+            self.data = data
+            self.permId = data['permId']['permId']
+            self.identifier  = data['identifier']['identifier']
+            self.ident  = data['identifier']['identifier']
+            self.tags = extract_tags(data['tags'])
+
+            self.a('space', data['space']['permId'])
+
+            # put the properties in the self.p namespace (without checking them)
+            for key, value in data['properties'].items():
+                self.p.__dict__[key.lower()] = value
+
+        if kwargs is not None:
+            for key in kwargs:
+                setattr(self, key, kwargs[key])
+
+    def __setattr__(self, name, value):
+        if name in ['set_properties', 'set_tags', 'add_tags']:
+            raise ValueError("These are methods which should not be overwritten")
+
+        self.__dict__[name] = value
+        if name in ['space', 'project', 'experiment', 'container']:
+            if not isinstance(value, str):
+                value = getattr(value, ident)
+            self.__dict__[name+'Id'] = search_request_for_identifier(value, name.capitalize())
+
+    def _repr_html_(self):
+        html = self.a._repr_html_()
+        
+        return html
+
+    def set_properties(self, properties):
+        self.openbis.update_sample(self.permId, properties=properties)
+
+    def save(self):
+        if self.permId is None:
+            self.openbis.create_sample(self)
+        else:
+            self.openbis.update_sample(self)
 
     def delete(self, reason):
         self.openbis.delete_entity('sample', self.permId, reason)
-
 
     def get_datasets(self):
         objects = self.dataSets
@@ -1785,8 +2091,6 @@ class Sample():
         datasets['properties'] = datasets['properties'].map(extract_properties)
         datasets['type'] = datasets['type'].map(extract_code)
         return datasets
-        #return datasets[['code','properties', 'type', 'registrationDate']]
-
 
     def get_parents(self):
         return self.openbis.get_samples(withChildren=self.permId)
@@ -1862,7 +2166,6 @@ class Experiment():
 
     def __init__(self, openbis_obj, data):
         self.openbis = openbis_obj
-        self.permid = data['permId']['permId']
         self.permId = data['permId']['permId']
         self.identifier  = data['identifier']['identifier']
         self.properties = data['properties']
@@ -1871,26 +2174,23 @@ class Experiment():
         self.project = data['project']['code']
         self.data = data
 
-    def __setitem__(self, key, value):
-        self.openbis.update_experiment(self.permid, key, value)
-
     def set_properties(self, properties):
-        self.openbis.update_experiment(self.permid, properties=properties)
+        self.openbis.update_experiment(self.permId, properties=properties)
 
     def set_tags(self, tags):
         tagIds = _tagIds_for_tags(tags, 'Set')
-        self.openbis.update_experiment(self.permid, tagIds=tagIds)
+        self.openbis.update_experiment(self.permId, tagIds=tagIds)
 
     def add_tags(self, tags):
         tagIds = _tagIds_for_tags(tags, 'Add')
-        self.openbis.update_experiment(self.permid, tagIds=tagIds)
+        self.openbis.update_experiment(self.permId, tagIds=tagIds)
 
     def del_tags(self, tags):
         tagIds = _tagIds_for_tags(tags, 'Remove')
-        self.openbis.update_experiment(self.permid, tagIds=tagIds)
+        self.openbis.update_experiment(self.permId, tagIds=tagIds)
 
     def delete(self, reason):
-        self.openbis.delete_entity('experiment', self.permid, reason)
+        self.openbis.delete_entity('experiment', self.permId, reason)
 
     def _repr_html_(self):
         html = """
@@ -1911,13 +2211,52 @@ class Experiment():
   </tbody>
 </table>
         """
-        return html.format(self.permid, self.identifier, self.project, self.properties, self.tags, self.attachments)
+        return html.format(self.permId, self.identifier, self.project, self.properties, self.tags, self.attachments)
 
     def __repr__(self):
         data = {}
         data["identifier"] = self.identifier
-        data["permid"] = self.permid
+        data["permId"] = self.permId
         data["properties"] = self.properties
         data["tags"] = self.tags
         return repr(data)
 
+
+class PropertyAssignments():
+    
+    def __init__(self, openbis_obj, data):
+        self.openbis = openbis_obj
+        self.data = data
+        self.prop = {}
+        for pa in self.data['propertyAssignments']:
+            self.prop[pa['propertyType']['code'].lower()] = pa
+
+
+    def _repr_html_(self):
+        html = """
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th>property</th>
+      <th>label</th>
+      <th>description</th>
+      <th>dataTypeCode</th>
+      <th>mandatory</th>
+    </tr>
+  </thead>
+  <tbody>
+        """
+        for pa in self.data['propertyAssignments']:
+            html += "<tr> <th>{}</th> <td>{}</td> <td>{}</td> <td>{}</td> <td>{}</td> </tr>".format(
+                pa['propertyType']['code'].lower(),    
+                pa['propertyType']['label'],    
+                pa['propertyType']['description'],    
+                pa['propertyType']['dataTypeCode'],    
+                pa['mandatory']
+            )
+
+        html += """
+            </tbody>
+            </table>
+        """
+        return html
