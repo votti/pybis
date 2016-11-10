@@ -34,7 +34,7 @@ DROPBOX_PLUGIN = "jupyter-uploader-api"
 def _definitions(what):
     entities = {
         "Sample": {
-            "attrs": "space experiment project parents children container components tags".split(),
+            "attrs": "space experiment parents children container components tags".split(),
             "ids2type": {
                 'parentIds': { 'permId': { '@type': 'as.dto.sample.id.SamplePermId' } },
                 'childIds':  { 'permId': { '@type': 'as.dto.sample.id.SamplePermId' } },
@@ -127,7 +127,7 @@ def parse_jackson(input_json):
     """
     interesting=['tags', 'registrator', 'modifier', 'type', 'parents', 
         'children', 'containers', 'properties', 'experiment', 'sample',
-        'project', 'space', 'propertyType'
+        'project', 'space', 'propertyType' 
     ]
     found = {} 
     def build_cache(graph):
@@ -154,8 +154,11 @@ def parse_jackson(input_json):
                     
     def deref_graph(graph):            
         if isinstance(graph, list):
-            for item in graph:
-                deref_graph(item)
+            for i, list_item in enumerate(graph):
+                if isinstance(list_item, int):
+                    graph[i] = found[list_item]
+                else:
+                    deref_graph(list_item)
         elif isinstance(graph, dict) and len(graph) > 0:
             for key, value in graph.items():
                 if key in interesting:
@@ -173,6 +176,7 @@ def parse_jackson(input_json):
                     deref_graph(value)
 
     build_cache(input_json)
+    deref_graph(found)
     deref_graph(input_json)
 
 def check_datatype(type_name, value):
@@ -222,6 +226,8 @@ def format_timestamp(ts):
     return datetime.fromtimestamp(round(ts/1000)).strftime('%Y-%m-%d %H:%M:%S')
 
 def extract_code(obj):
+    if not isinstance(obj, dict):
+        return str(obj)
     return obj['code']
 
 def extract_deletion(obj):
@@ -526,7 +532,7 @@ def _subcriteria_for_properties(prop, val):
         }
     }
 
-def _subcriteria_for_permid(permids, entity_type, parents_or_children='Parents'):
+def _subcriteria_for_permid(permids, entity_type, parents_or_children=''):
 
     if not isinstance(permids, list):
         permids = [permids]
@@ -1004,7 +1010,7 @@ class Openbis:
         return Things(self, 'experiment', exps, 'identifier')
 
 
-    def get_datasets(self, code=None, type=None, withParents=None, withChildren=None):
+    def get_datasets(self, code=None, type=None, withParents=None, withChildren=None, withSamples=None):
 
         sub_criteria = []
 
@@ -1016,6 +1022,8 @@ class Openbis:
             sub_criteria.append(_subcriteria_for_permid(withParents, 'DataSet', 'Parents'))
         if withChildren:
             sub_criteria.append(_subcriteria_for_permid(withChildren, 'DataSet', 'Children'))
+        if withSamples:
+            sub_criteria.append(_subcriteria_for_permid(withSamples, 'Sample'))
 
         criteria = {
             "criteria": sub_criteria,
@@ -1041,8 +1049,10 @@ class Openbis:
             ],
         }
         resp = self._post_request(self.as_v3, request)
-        if resp is not None:
-            objects = resp['objects']
+        objects = resp['objects']
+        if len(objects) == 0:
+            raise ValueError("no datasets found!")
+        else:
             parse_jackson(objects)
             datasets = DataFrame(objects)
             datasets['registrationDate']= datasets['registrationDate'].map(format_timestamp)
@@ -2177,26 +2187,54 @@ class AttrHolder():
 
         request = {}
 
+        # look at all attributes available for that entity
         for attr in defs['attrs']:
-            # only continue if attribute is actually defined
             if '_'+attr in self.__dict__:
-                # handle multivalue attributes (parents, children, tags etc.)
-                if attr in defs['multi']:
-                    items = self.__dict__.get('_'+attr, [])
-                    if items == None:
-                        items = []
-                    request[attr2ids[attr]] = {
-                        "actions": [
-                            {
-                                "items": items,
-                                "@type": "as.dto.common.update.ListUpdateActionSet",
-                            }
-                        ],
-                        "@type": "as.dto.common.update.IdListUpdateValue"
-                    }
+                # in inserts and updates, space becomes spaceId, dataset becomes dataSetId etc.
+                ids = attr2ids[attr]
+                if self._is_new:
+                    # handle multivalue attributes (parents, children, tags etc.)
+                    if attr in defs['multi']:
+                        items = self.__dict__.get('_'+attr, [])
+                        if items == None:
+                            items = []
+                        request[ids] = items
+                    else:
+                        request[ids] = self.__dict__.get('_'+attr, None)
+
                 else:
-                    ids = attr2ids[attr]
-                    request[ids] = self.__dict__.get('_'+attr, None)
+                    # handle multivalue attributes (parents, children, tags etc.)
+                    # we only cover the Set mechanism, which means we always update all items in a
+                    # list
+                    if attr in defs['multi']:
+                        items = self.__dict__.get('_'+attr, [])
+                        if items == None:
+                            items = []
+                        request[ids] = {
+                            "actions": [
+                                {
+                                    "items": items,
+                                    "@type": "as.dto.common.update.ListUpdateActionSet",
+                                }
+                            ],
+                            "@type": "as.dto.common.update.IdListUpdateValue"
+                        }
+                    else:
+                        # handle single attribut4es (space, experiment, project, container, etc.)
+                        value =  self.__dict__.get('_'+attr, {})
+                        if value is None:
+                            pass
+                        else:
+                            isModified=False
+                            if 'isModified' in value:
+                                isModified=True
+                                del value['isModified']
+                            
+                            request[ids] = {
+                               "@type": "as.dto.common.update.FieldUpdateValue",
+                               "isModified": isModified,
+                               "value": value,
+                            }
 
         if self.__dict__.get('_code', None) is None:
             request['autoGeneratedCode'] = True
@@ -2271,11 +2309,12 @@ class AttrHolder():
             # fetch object in openBIS, make sure it actually exists
             obj = getattr(self._openbis, "get_"+name)(value)
             self.__dict__['_'+name] = obj['permId']
-            # mark attribute as modified, if it's an existing entity
+
+                # mark attribute as modified, if it's an existing entity
             if self.__dict__['_is_new']:
                 pass
             else:
-                self.__dict__['_'+name]['is_modified'] = True
+                self.__dict__['_'+name]['isModified'] = True
 
         elif name in ["identifier", "project"]:
             raise KeyError("you can not modify the {}".format(name))
@@ -2358,7 +2397,6 @@ class Sample():
             for key, value in data['properties'].items():
                 self.p.__dict__[key.lower()] = value
 
-
     @property
     def type(self):
         return self.__dict__['type'].data['code']
@@ -2368,7 +2406,6 @@ class Sample():
             sample_type = self.openbis.get_sample_type(type_name)
             self.p.__dict__['_type'] = sample_type
             self.a.__dict__['_type'] = sample_type
-
 
     def __getattr__(self, name):
         return getattr(self.__dict__['a'], name)
@@ -2425,14 +2462,10 @@ class Sample():
         self.openbis.delete_entity('sample', self.permId, reason)
 
     def get_datasets(self):
-        objects = self.dataSets
-        parse_jackson(objects)
+        return self.openbis.get_datasets(withSamples=[self.permId])
 
-        datasets = DataFrame(objects)
-        datasets['registrationDate'] = datasets['registrationDate'].map(format_timestamp)
-        datasets['properties'] = datasets['properties'].map(extract_properties)
-        datasets['type'] = datasets['type'].map(extract_code)
-        return datasets
+    def get_projects(self):
+        return self.openbis.get_project(withSamples=[self.permId])
 
         
 class Space(dict):
