@@ -2258,7 +2258,7 @@ class AttrHolder():
                 exp = ''
                 try:
                     exp = self.__dict__[int_name]['identifier']['identifier']
-                except KeyError:
+                except Exception:
                     pass
                 return exp
             elif isinstance(self.__dict__[int_name], list):
