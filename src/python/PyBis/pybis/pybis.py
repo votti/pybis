@@ -2256,7 +2256,7 @@ class AttrHolder():
                 exp = ''
                 try:
                     exp = self.__dict__[int_name]['identifier']['identifier']
-                except TypeError:
+                except KeyError:
                     pass
                 return exp
             elif isinstance(self.__dict__[int_name], list):
@@ -2599,6 +2599,8 @@ class PropertyAssignments():
         self.openbis = openbis_obj
         self.data = data
         self.prop = {}
+        if self.data['propertyAssignments'] is None:
+            self.data['propertyAssignments'] = []
         for pa in self.data['propertyAssignments']:
             self.prop[pa['propertyType']['code'].lower()] = pa
 
@@ -2645,5 +2647,4 @@ class PropertyAssignments():
             </table>
         """
         return html
-
 
