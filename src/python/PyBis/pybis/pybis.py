@@ -837,7 +837,7 @@ class Openbis:
 
 
     def get_samples(self, code=None, permId=None, space=None, project=None, experiment=None, type=None,
-                    withParents=None, withChildren=None, **properties):
+                    withParents=None, withChildren=None, tags=None, **properties):
         """ Get a list of all samples for a given space/project/experiment (or any combination)
         """
 
@@ -869,6 +869,8 @@ class Openbis:
                 sub_criteria.append(_subcriteria_for_properties(prop, properties[prop]))
         if type:
             sub_criteria.append(_subcriteria_for_code(type, 'sample_type'))
+        if tags:
+            sub_criteria.append(_subcriteria_for_tags(tags))
         if code:
             sub_criteria.append(_criteria_for_code(code))
         if permId:
