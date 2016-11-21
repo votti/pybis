@@ -169,7 +169,10 @@ def parse_jackson(input_json):
                     elif isinstance(value, list):
                         for i, list_item in enumerate(value):
                             if isinstance(list_item, int):
-                                value[i] = found[list_item]
+                                if list_item in found:
+                                    value[i] = found[list_item]
+                                else:
+                                    value[i] = list_item
                 elif isinstance(value, dict):
                     deref_graph(value)
                 elif isinstance(value, list):
@@ -188,20 +191,18 @@ def check_datatype(type_name, value):
         return isinstance(value, str)
     return True
 
-def _determine_ident_type(ident):
+def is_identifier(ident):
     # assume we got a sample identifier e.g. /TEST/TEST-SAMPLE
     match = re.match('/', ident)
     if match:
-        return "identifier"
+        return True
     else:
-        return "permId"
+        return False
 
 def search_request_for_identifier(ident, entity_type):
-    
     search_request = {}
-    itype = _determine_ident_type(ident)
 
-    if itype == "identifier":
+    if is_identifier(ident):
         search_request = {
             "identifier": ident.upper(),
             "@type": "as.dto.{}.id.{}Identifier".format(entity_type.lower(), entity_type.capitalize())
@@ -1470,7 +1471,10 @@ class Openbis:
 
             fetch_options = {
                 "propertyAssignments" : {
-                    "@type" : "as.dto.property.fetchoptions.PropertyAssignmentFetchOptions"
+                    "@type" : "as.dto.property.fetchoptions.PropertyAssignmentFetchOptions",
+                    "propertyType": {
+                        "@type": "as.dto.property.fetchoptions.PropertyTypeFetchOptions"
+                    }
                 },
                 "@type": "as.dto.{}.fetchoptions.{}TypeFetchOptions".format(entity_type.lower(), entity_type)
             }
@@ -1633,7 +1637,7 @@ class Openbis:
 
 
     def new_analysis(self, name, description=None, sample=None, dss_code=None, result_files=None,
-    notebook_files=None, parents=[]):
+    notebook_files=None, parents=None):
 
         """ An analysis contains the Jupyter notebook file(s) and some result files.
             Technically this method involves uploading files to the session workspace
@@ -1645,12 +1649,30 @@ class Openbis:
 
         # if a sample identifier was given, use it as a string.
         # if a sample object was given, take its identifier
-        # TODO: handle permId's 
-        sample_identifier = None
+        sampleId = None
         if isinstance(sample, str):
-            sample_identifier = sample
+            if (is_identifier(sample)):
+                sampleId = { 
+                    "identifier": sample,
+                    "@type": "as.dto.sample.id.SampleIdentifier"
+                }
+            else:
+                sampleId = { 
+                    "permId": sample,
+                    "@type": "as.dto.sample.id.SamplePermId"
+                }
         else:
-            sample_identifier = sample.ident
+            sampleId = { 
+                "identifier": sample.identifier,
+                "@type": "as.dto.sample.id.SampleIdentifier"
+            }
+
+        parentIds = []
+        if parents is not None:
+            if not isinstance(parents, list):
+                parants = [parents]
+            for parent in parents:
+                parentIds.append(parent.permId)
         
         datastore_url = self._get_dss_url(dss_code)
         folder = time.strftime('%Y-%m-%d_%H-%M-%S')
@@ -1695,8 +1717,10 @@ class Openbis:
             DROPBOX_PLUGIN,
             { 
             	"sample" : {
-                	"identifier" : sample.identifier
+                    "identifier" : sample.identifier
                 },
+                "sampleId": sampleId,
+                "parentIds": parentIds,
                 "containers" : [ 
                     {
                     	"dataSetType" : "JUPYTER_CONTAINER",
@@ -1707,7 +1731,6 @@ class Openbis:
                     }
                 ],
                 "dataSets" : data_sets,
-                "parents" : parents,
             }
           ],
         }
@@ -2162,10 +2185,16 @@ class AttrHolder():
         for key in  "code permId identifier type container components attachments".split():
             self.__dict__['_'+key] = data.get(key, None)
 
-        for key in "space project experiment".split():
+        for key in "space project".split():
             d =  data.get(key, None)
             if d is not None:
                 d = d['permId']
+            self.__dict__['_'+key] = d
+
+        for key in "experiment".split():
+            d =  data.get(key, None)
+            if d is not None:
+                d = d['identifier']
             self.__dict__['_'+key] = d
 
         for key in "parents children".split():
@@ -2257,7 +2286,7 @@ class AttrHolder():
             if int_name in ["_experiment"]:
                 exp = ''
                 try:
-                    exp = self.__dict__[int_name]['identifier']['identifier']
+                    exp = self.__dict__[int_name]['identifier']
                 except Exception:
                     pass
                 return exp
@@ -2399,6 +2428,10 @@ class Sample():
             for key, value in data['properties'].items():
                 self.p.__dict__[key.lower()] = value
 
+    def __dir__(self):
+        return ['get_parents()', 'get_children()', 'a', 'space', 'project', 'experiment',
+        'project','tags', 'data']
+
     @property
     def type(self):
         return self.__dict__['type'].data['code']
@@ -2469,6 +2502,11 @@ class Sample():
     def get_projects(self):
         return self.openbis.get_project(withSamples=[self.permId])
 
+    def get_experiment(self):
+        try: 
+            return self.openbis.get_experiment(self._experiment['identifier'])
+        except Exception:
+            pass
         
 class Space(dict):
     """ managing openBIS spaces
