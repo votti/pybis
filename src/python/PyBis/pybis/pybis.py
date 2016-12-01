@@ -2107,17 +2107,17 @@ class PropertyHolder():
         if name.endswith('_'):
             name = name.rstrip('_')
             property_type = self._type.prop[name]['propertyType']
-            if property_type['dataTypeCode'] == 'CONTROLLEDVOCABULARY':
+            if property_type['dataType'] == 'CONTROLLEDVOCABULARY':
                 return self._openbis.get_terms(name)
             else:
-                return { property_type["label"] : property_type["dataTypeCode"]}
+                return { property_type["label"] : property_type["dataType"]}
         else: return None
 
     def __setattr__(self, name, value):
         if name not in self._property_names:
             raise KeyError("No such property: {}".format(name)) 
         property_type = self._type.prop[name]['propertyType']
-        data_type = property_type['dataTypeCode']
+        data_type = property_type['dataType']
         if data_type == 'CONTROLLEDVOCABULARY':
             voc = self._openbis.get_terms(name)
             if value not in voc.terms:
@@ -2661,7 +2661,7 @@ class PropertyAssignments():
       <th>property</th>
       <th>label</th>
       <th>description</th>
-      <th>dataTypeCode</th>
+      <th>dataType</th>
       <th>mandatory</th>
     </tr>
   </thead>
@@ -2678,7 +2678,7 @@ class PropertyAssignments():
                 pa['propertyType']['code'].lower(),    
                 pa['propertyType']['label'],    
                 pa['propertyType']['description'],    
-                pa['propertyType']['dataTypeCode'],    
+                pa['propertyType']['dataType'],    
                 pa['mandatory']
             )
 
