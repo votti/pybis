@@ -13,11 +13,11 @@ openBIS should be extended to support big-data use cases. This requires changing
 
 | Command       | Description                                                                                 |
 |---------------|---------------------------------------------------------------------------------------------|
-| obis init     | Register externally managed data set with openBIS                                                    |
-| obis commit   | Commit local state to openBIS server                                                        |
-| obis add-ref  | Reference a existing externally managed data set                                                     |
+| obis init     | Register externally managed data set with openBIS                                           |
+| obis commit   | Commit local state to openBIS server and synchronize database                               |
+| obis add-ref  | Reference a existing externally managed data set                                            |
 | obis clone    | Copy data to new location and register copy with openBIS                                    |
-| obis get      | Retrieve the files for an externally managed data set                                                |
+| obis get      | Retrieve the files for an externally managed data set                                       |
 
 
 # Implementation Sketch
@@ -45,7 +45,7 @@ A user wishes to analyze a large data set on a cluster. Here is an overview of t
 |----------------------|-----------------------------------------------------------------------------------------|
 | [download data]      | Stage data on the server in folder "foo"                                                |
 | obis init data .     | Prepare an externally managed (data) data set                                                    |
-| obis commit          | Inform the openBIS server about the current state                                       |
+| obis commit          | Inform the openBIS server about the current state and send a file listing for the database       |
 | mkdir/cd ../bar      | Create a folder to contain the analysis code                                            |
 | obis init analysis . | Prepare an externally managed (analysis) data set                                                |
 | obis add-ref  [path] | Indicate that the analysis data set references the data data set                        |
@@ -69,11 +69,11 @@ This would make it possible to re-run the analysis on different infrastructure. 
 
 ## obis init [data/analysis]
 
-Create a new externally managed data set in openBIS. This command has two variants: data and analysis. With the data argument, a git-annex is also initialized so that the (potentially large) data files can be managed. With the analysis argument only git is initialized, since the repository is assumed to hold just source code and analysis results (which are assumed to be small).
+Create a new externally managed data set in openBIS. This command has two variants: data and analysis. With the data argument, a git-annex is also initialized so that the (potentially large) data files can be managed. With the analysis argument only git is initialized, since the repository is assumed to hold just source code and analysis results (which are assumed to be small). Here the user is also queried about the openBIS instance they want to use for this repository/dataset. 
 
 ## obis commit
 
-Informs openBIS about the current state of the repository. If it is unknown to openBIS, a new data set is created. If is is known to openBIS, a new data set is created which is the child of the previous state of the data set. The externally managed data set stores the git commit id as metadata. Unmanaged data sets may have copies.
+Informs openBIS about the current state of the repository. If it is unknown to openBIS, a new data set is created. If is is known to openBIS, a new data set is created which is the child of the previous state of the data set. The externally managed data set stores the git commit id as metadata. Unmanaged data sets may have copies. A reference to the git repository is stored (a git URL) so that the data set may be cloned at a later time. Once the data set ID is returned by the openBIS server, a marker file is created in the directories belonging to the dataset to enable discovery in case of a lost link. 
 
 ## obis add-ref [path do data set]
 
@@ -81,11 +81,11 @@ Store a reference to another data set. This is, for example, used in analysis da
 
 ## obis clone [data set id]
 
-Clone a data set that is known to openBIS. This create a "copy" data set in openBIS.
+Clone a data set that is known to openBIS. By default cloning doesn't copy any data, this is done with `obis get`.
 
-## obis get
+## obis get [*file*]
 
-Retrieve any data from the annex and save it locally.
+Retrieve any data from the annex and save it locally. There is probably no need to inform openBIS about the copy because `git-annex` handles the copy counting and a list of currently-known copies can be obtained easily with `git annex whereis`. 
 
 # Handling of Scenarios
 
@@ -123,3 +123,5 @@ To make maintenance of versions of data sets manageable, openBIS should support 
 
 - Korolev et. al. use git tree IDs instead of commit IDs. Are these better?
 - How well does git-annex handle content in HDFS? Is some work necessary to improve this support?
+- where does the copy count get updated? When `git annex sync` is done? Or are all known remotes queried? 
+- Do we need two different versions of `obis init` for data and analysis? Perhaps we can just do one to reduce complexity

@@ -1,5 +1,5 @@
 #
-# Copyright 2014 ETH Zuerich, Scientific IT Services
+# Copyright 2016 ETH Zuerich, Scientific IT Services
 #
 # Licensed under the Apache License, Version 2.0 (the "License")
 # you may not use this file except in compliance with the License.
@@ -36,10 +36,8 @@ import errno
 
 
 def getSampleByIdentifier(transaction, identifier):
-
     sample = transaction.getSampleForUpdate(identifier)
     return sample
-
 
 def get_dataset_for_name(transaction, dataset_name):
 
@@ -99,13 +97,22 @@ def process(transaction, parameters, tableBuilder):
     print('userSessionToken: ' + userSessionToken)
 
     # get mandatory sample to connect the container to
-    sampleIdentifier = parameters.get("sample").get("identifier").get("identifier")
-    print('looking for sample with identifier: ' + sampleIdentifier)
-    if sampleIdentifier is None:
-        raise UserFailureException('mandatory parameter sample["identifier"] is missing')
-    sample = getSampleByIdentifier(transaction, sampleIdentifier)
-    if sample == None: 
-        raise Exception("no sample found with this identifier: " + sampleIdentifier)
+    sample = None
+    sampleId = parameters.get("sampleId")
+    if sampleId is None:
+        raise UserFailureException('mandatory parameter sampleId is missing')
+    print(sampleId)
+    if "identifier" in sampleId:
+        print('looking for sample with identifier: ' + sampleId['identifier'])
+        sample = getSampleByIdentifier(transaction, sampleId['identifier'])
+        if sample == None: 
+            raise Exception("no sample found with this identifier: " + sampleId['identifier'])
+
+    parent_datasets = []
+    if parameters.get('parentIds') is not None:
+        for parentId in parameters.get('parentIds'):
+            parent_datasets.append(parentId)
+    print("parent_datasets = " + str(parent_datasets))
 
     everything_ok = True
 
@@ -135,6 +142,7 @@ def process(transaction, parameters, tableBuilder):
                 transaction,
                 container.get("dataSetType"),
                 sample,
+                parent_datasets,
                 container.get("properties"),
                 dataset_codes
             )
@@ -159,7 +167,7 @@ def process(transaction, parameters, tableBuilder):
         row.setCell("MESSAGE", "Dataset registration failed")
 
 
-def register_container(transaction, dataset_type, sample, properties, contained_dataset_codes ):
+def register_container(transaction, dataset_type, sample, parent_datasets, properties, contained_dataset_codes ):
 
     container_name = properties.get("NAME")
     print("check if the JUPYTER_CONTAINER already exists with name: "+ container_name)
@@ -171,6 +179,7 @@ def register_container(transaction, dataset_type, sample, properties, contained_
         # Create new container (a dataset of type "JUPYTER_CONTAINER")
         container = transaction.createNewDataSet(dataset_type)
         container.setSample(sample)
+        container.setParentDatasets(parent_datasets)
         #container.setRegistrator(userId)
     else:
         print("JUPYTER_CONTAINER already exists: " + container_name)

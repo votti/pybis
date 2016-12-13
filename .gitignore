@@ -1,3 +1,7 @@
+*.ipynb
+src/python/sandbox/
+*~
+.DS_Store
 *.egg-info
 __pycache__
 .idea
