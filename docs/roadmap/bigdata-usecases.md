@@ -6,6 +6,8 @@ openBIS should be extended to support big-data use cases. This requires changing
 
 - Implement command-line tool (obis) for interacting with openBIS
 - Extend openBIS to support externally managed data
+  - Allow a data set to be designated as externally managed.
+  - Support data set versions
 
 # obis Commands
 
@@ -101,9 +103,20 @@ This needs to be looked into in greater detail. Git-annex can manage data that i
 
 # openBIS changes
 
-- New data set type -- externally managed
-- New concept on data sets: copies
-- [Copies can be "altered"] -- This is no longer needed
+- Need to be able to designate data sets as externally managed.
+  - It might be sufficient to leave the store field empty to do this, otherwise it may still require a new kind of data set
+- Need to be able to track versions of data sets
+  - A version is a new kind of relationship between two data sets. Both data sets need to be of the same type.
+  - On the relationship, it should be possible to mark the new version as inheriting properties from the upstream.
+  
+## Support for Versions
+
+Since externally managed data sets may be changed, openBIS needs to track versions of data sets. This concept should be introduced for all data sets, not just externally managed ones. A version of a data set is another data set of the same type with a particular type of relationship between them. Currently we support parent/child relationships between data sets. We will also need to support "version" as a new type of relationship.
+
+  
+## Data set property inheritance
+
+To make maintenance of versions of data sets manageable, openBIS should support inheritance of properties. openBIS already supports defining a graph of relationships between data sets. Property inheritance should be a flag that any be applied to any edge in the relationship graph. If it is set, values for the properties on the downstream node are inherited from the parent. This means that if a property is set, this is the value for the property; if no property value is set, the value is the property value of the upstream node (recursively).
 
 
 # Outstanding Questions
