@@ -1456,7 +1456,7 @@ class Openbis:
         """ Returns a list of all available experiment types
         """
 
-        attributes = ['code', 'description', *additional_attributes]
+        attributes = ['code', 'description'] + list(additional_attributes)
 
         search_request = {}
         fetch_options = {}
